@@ -1,0 +1,50 @@
+# LifeOS — XcodeGen 工程描述文件。
+# 这是工程的唯一真实来源：不要手改 .xcodeproj，改这里然后跑 ./Scripts/bootstrap.sh。
+name: LifeOS
+options:
+  bundleIdPrefix: com.geek96
+  deploymentTarget:
+    macOS: "15.0"
+  xcodeVersion: "16.0"
+
+packages:
+  LifeOSCore:
+    path: ./LifeOSCore
+
+targets:
+  LifeOS:
+    type: application
+    platform: macOS
+    sources:
+      - path: LifeOS
+    dependencies:
+      - package: LifeOSCore
+        products: [LifeOSCore]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.geek96.lifeos
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: LifeOS/Resources/Info.plist
+      properties:
+        # xcodegen 会按这里重写 Info.plist：版本号、区域、最低系统都要显式写，否则被默认值覆盖
+        CFBundleDevelopmentRegion: zh_CN
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        CFBundleDisplayName: LifeOS
+        LSApplicationCategoryType: public.app-category.productivity
+        NSHumanReadableCopyright: "Copyright © 2026"
+
+schemes:
+  LifeOS:
+    build:
+      targets:
+        LifeOS: all
+    run:
+      config: Debug

@@ -1,0 +1,25 @@
+# Xcode
+build/
+DerivedData/
+*.pbxproj
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+
+# Swift
+.build/
+*.o
+*.d
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# 构建产物
+*.app
+*.dmg
+
+# 本地配置（签名、个人路径等，不进版本库）
+Config/Signing.local.xcconfig
+.local/

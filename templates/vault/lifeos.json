@@ -1,0 +1,17 @@
+{
+  "courseos" : {
+    "semester" : "",
+    "classesFrom" : "2026-08-24",
+    "classesUntil" : "2026-12-04",
+    "sections" : {}
+  },
+  "layers" : {
+    "classes" : true,
+    "courseDeadlines" : true,
+    "courseOptional" : false
+  },
+  "dayHours" : {
+    "start" : 8,
+    "end" : 23
+  }
+}
