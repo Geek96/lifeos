@@ -23,3 +23,6 @@ xcuserdata/
 # 本地配置（签名、个人路径等，不进版本库）
 Config/Signing.local.xcconfig
 .local/
+
+# 构建目录用 .noindex 结尾，避免 Spotlight/启动台收录多份 LifeOS.app
+build.noindex/

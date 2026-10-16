@@ -18,8 +18,8 @@
 
 ```bash
 ./Scripts/bootstrap.sh
-xcodebuild -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug -derivedDataPath build build
-open build/Build/Products/Debug/LifeOS.app
+xcodebuild -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug -derivedDataPath build.noindex build
+open build.noindex/Build/Products/Debug/LifeOS.app
 ```
 
 ## 准备 vault

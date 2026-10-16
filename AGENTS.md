@@ -25,5 +25,5 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
 ## 验证
 
 1. `swift test --package-path LifeOSCore`
-2. `xcodebuild -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug -derivedDataPath build build`
+2. `xcodebuild -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug -derivedDataPath build.noindex build`
 3. 改了 UI 就打开 App 肉眼确认（今天 / 周 / 月 / 收件箱 / 检查器）。
