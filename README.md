@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/icon.png" width="128" alt="LifeOS icon"/></p>
+
 # 🗓️ LifeOS
 
 学习之外的生活，放在一个“高级日历”上。CourseOS 的姊妹 App：同一套 SwiftUI 架构和界面，
