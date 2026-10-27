@@ -73,6 +73,32 @@ struct SettingsView: View {
             }
             .formStyle(.grouped)
             .tabItem { Label("CourseOS", systemImage: "graduationcap") }
+
+            Form {
+                Section {
+                    Toggle(isOn: $draft.plugins.health) {
+                        Label("健康", systemImage: "heart")
+                    }
+                    Toggle(isOn: $draft.plugins.things) {
+                        Label("物品", systemImage: "shippingbox")
+                    }
+                    Toggle(isOn: $draft.plugins.finance) {
+                        Label("消费", systemImage: "creditcard")
+                    }
+                    Toggle(isOn: $draft.plugins.travel) {
+                        Label("出行", systemImage: "airplane")
+                    }
+                    Toggle(isOn: $draft.plugins.vision) {
+                        Label("远景", systemImage: "mountain.2")
+                    }
+                } header: {
+                    Text("插件")
+                } footer: {
+                    Text("健康：今天练什么、饮食记录与每日目标对比（圆环）、复测、训练记录，数据在 健康/。物品：找东西、资产、补货与保养、售后、搬家，数据在 物品/，退货截止和保修到期会上日历。消费：流水、账户余额、订阅、预算，数据在 财务/，订阅扣款日会上日历。出行：近期、全部、想去，每次出行有按天规划的详情页，数据在 出行/。远景：愿景（时间甬道或清单）、项目（步骤与进度，带日期的步骤上日历）、奇思妙想，数据在 远景/。都由 agent 维护。")
+                }
+            }
+            .formStyle(.grouped)
+            .tabItem { Label("插件", systemImage: "puzzlepiece.extension") }
         }
         .frame(width: 520, height: 440)
         .onAppear { draft = model.config }

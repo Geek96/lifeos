@@ -3,11 +3,11 @@ import AppKit
 import LifeOSCore
 
 /// 编排：载入 vault + CourseOS 快照、生成日历上的出现、处理用户操作。
-/// 只写 LifeOS vault（事项时间/状态字段、新建事项、收件箱）和 lifeos.json；CourseOS 只读。
+/// 只写 LifeOS vault（事项时间/状态字段、新建事项、收件箱、健康插件的饮食表追加一行）和 lifeos.json；CourseOS 只读。
 @Observable
 @MainActor
 final class AppModel {
-    enum Page: Hashable { case today, week, month, inbox, notes }
+    enum Page: Hashable { case today, week, month, inbox, notes, health, things, finance, travel, vision }
 
     /// 新建 / 编辑事项的 sheet
     struct EditorRequest: Identifiable {
@@ -32,6 +32,29 @@ final class AppModel {
     var inbox: [String] = []
     var notes: [VaultStore.Note] = []
     var journal: [VaultStore.JournalEntry] = []
+    /// 健康插件（关着时为空）
+    var health = HealthSnapshot.empty
+    /// 物品插件（关着时为空）
+    var things: [Thing] = []
+    /// 物品插件的想买清单
+    var thingWishes: [WishItem] = []
+    /// 消费插件（流水、账户、订阅、预算；关着时为空）
+    var finance = FinanceSnapshot.empty
+    /// 出行插件
+    var trips: [Trip] = []
+    var wishlist: [Destination] = []
+    /// 出行页正在看的那一次（nil = 列表）
+    var openTripID: String?
+    /// 从愿景清单点进出行详情时记住来源，返回时回到那个愿景
+    var tripReturnVisionID: String?
+    /// 健康页“健身”分页正在看的动作（nil = 总览）
+    var openExerciseID: String?
+    /// 远景插件：愿景、项目、奇思妙想
+    var vision = VisionSnapshot.empty
+    /// 远景页正在看的愿景 / 项目 / 想法（都为 nil = 列表）
+    var openVisionID: String?
+    var openProjectID: String?
+    var openIdeaID: String?
     var lastLoad: Date?
 
     /// 周 / 月视图停在哪一天
@@ -82,6 +105,24 @@ final class AppModel {
         inbox = store.inboxLines()
         notes = store.notes()
         journal = store.recentJournal()
+        health = config.plugins.health ? HealthStore(vault: root).load(calendar: calendar) : .empty
+        if !config.plugins.health && page == .health { page = .today }
+        things = config.plugins.things ? ThingStore(vault: root).load(calendar: calendar) : []
+        thingWishes = config.plugins.things ? ThingStore(vault: root).loadWishlist(calendar: calendar) : []
+        finance = config.plugins.finance ? FinanceStore(vault: root).load(calendar: calendar) : .empty
+        if !config.plugins.finance && page == .finance { page = .today }
+        if config.plugins.travel {
+            let travel = TravelStore(vault: root)
+            trips = travel.loadTrips(calendar: calendar)
+            wishlist = travel.loadWishlist()
+        } else {
+            trips = []
+            wishlist = []
+            if page == .travel { page = .today }
+        }
+        if !config.plugins.things && page == .things { page = .today }
+        vision = config.plugins.vision ? VisionStore(vault: root).load(calendar: calendar) : .empty
+        if !config.plugins.vision && page == .vision { page = .today }
         let semester = config.courseos.semester
         if semester.isEmpty {
             snapshot = .empty
@@ -155,13 +196,25 @@ final class AppModel {
         saveConfig(c)
     }
 
+    func setPlugin(_ keyPath: WritableKeyPath<LifeConfig.Plugins, Bool>, _ on: Bool) {
+        var c = config
+        c.plugins[keyPath: keyPath] = on
+        saveConfig(c)
+    }
+
     // MARK: - 日历数据
 
     /// 某段时间内日历上的所有出现（生活 + 课程图层），按开始时间排序
     func occurrences(in range: DateInterval) -> [Occurrence] {
         let life = items.flatMap { Recurrence.occurrences(of: $0, in: range, calendar: calendar) }
         let course = CourseOSBridge.occurrences(snapshot, in: range, config: config, calendar: calendar)
-        return (life + course).sorted { ($0.start, $0.title) < ($1.start, $1.title) }
+        let owned = ThingCalendar.occurrences(things, in: range, calendar: calendar)
+        let charges = vaultRoot.map {
+            FinanceCalendar.occurrences(finance.subscriptions, fileURL: FinanceStore(vault: $0).subscriptionsURL, in: range, calendar: calendar)
+        } ?? []
+        let travel = TravelCalendar.occurrences(trips, in: range, calendar: calendar)
+        let plans = VisionCalendar.occurrences(vision, in: range, calendar: calendar)
+        return (life + course + owned + charges + travel + plans).sorted { ($0.start, $0.title) < ($1.start, $1.title) }
     }
 
     /// 负荷：多看 5 天，让截止前摊下来的课业算进来（课业负荷不受图层开关影响）
@@ -329,19 +382,163 @@ final class AppModel {
         }
     }
 
-    // MARK: - 打开与交给 agent
+    // MARK: - 健康插件
 
-    func openInObsidian(_ url: URL) {
-        var comps = URLComponents()
-        comps.scheme = "obsidian"
-        comps.host = "open"
-        comps.queryItems = [URLQueryItem(name: "path", value: url.path)]
-        if let link = comps.url, NSWorkspace.shared.urlForApplication(toOpen: link) != nil {
-            NSWorkspace.shared.open(link)
-        } else {
-            NSWorkspace.shared.open(url)
+    /// 某天的训练：属于 health 插件的事项在这一天的出现
+    func training(on day: Date) -> [(occurrence: Occurrence, item: LifeItem)] {
+        let range = dayRange(day)
+        return items.filter { $0.plugin == "health" }
+            .flatMap { item in Recurrence.occurrences(of: item, in: range, calendar: calendar).map { ($0, item) } }
+            .sorted { $0.0.start < $1.0.start }
+    }
+
+    /// 打开一个动作的详情（健康页 → 健身分页）
+    func openExercise(_ ex: Exercise) {
+        UserDefaults.standard.set("fitness", forKey: "healthTab")
+        openExerciseID = ex.id
+        page = .health
+    }
+
+    /// 在今天的饮食表里记一顿（还没估算，等 agent 补数字）；可撤销
+    func logMeal(_ text: String) {
+        guard let root = vaultRoot else { return }
+        let store = HealthStore(vault: root)
+        let url = store.dietURL(clock, calendar: calendar)
+        do {
+            let before = try store.appendMeal(text, at: Date(), calendar: calendar)
+            reload()
+            feedback.show("已记下，等 agent 估算营养", undo: { [weak self] in
+                if let before { try? before.write(to: url, atomically: true, encoding: .utf8) }
+                else { try? FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+                self?.reload()
+            })
+        } catch {
+            feedback.show("没能记下：\(error.localizedDescription)")
         }
     }
+
+    /// 日历上的物品出现 → 对应的物品
+    func thing(for occurrence: Occurrence?) -> Thing? {
+        guard let o = occurrence, o.id.hasPrefix("thing:") else { return nil }
+        return things.first { $0.fileURL == o.sourceURL }
+    }
+
+    /// 日历上的出行出现 → 那次出行
+    func trip(for occurrence: Occurrence?) -> Trip? {
+        guard let o = occurrence, o.id.hasPrefix("trip:") else { return nil }
+        return trips.first { $0.fileURL == o.sourceURL }
+    }
+
+    func openTrip(_ trip: Trip, from vision: Vision? = nil) {
+        openTripID = trip.id
+        tripReturnVisionID = vision?.id
+        page = .travel
+    }
+
+    /// 出行详情页的返回：从愿景点进来的回到愿景，否则回到出行列表
+    func closeTrip() {
+        openTripID = nil
+        if let id = tripReturnVisionID, let v = vision.visions.first(where: { $0.id == id }) {
+            tripReturnVisionID = nil
+            openVision(v)
+        }
+    }
+
+    /// 愿景清单里的一个地方 → 对应的出行（先看“行程”列，没写就按名字找）
+    func trip(for place: VisionPlace) -> Trip? {
+        if !place.trip.isEmpty {
+            return trips.first { $0.fileURL.deletingPathExtension().lastPathComponent == place.trip || $0.title == place.trip }
+        }
+        return trips.first { $0.title.localizedCaseInsensitiveContains(place.name) || $0.destination.localizedCaseInsensitiveContains(place.name) }
+    }
+
+    /// 勾选“要带”清单的一项；可撤销
+    func togglePacking(_ item: PackItem, in trip: Trip) {
+        guard let root = vaultRoot else { return }
+        do {
+            let before = try TravelStore(vault: root).togglePacking(item, in: trip)
+            reload()
+            feedback.show(item.done ? "已取消：\(item.text)" : "已带上：\(item.text)", undo: restorer(trip.fileURL, before))
+        } catch {
+            reload()
+            feedback.show("文件刚被改过，已重新载入，再点一次")
+        }
+    }
+
+    // MARK: - 远景插件
+
+    /// 日历上的项目步骤 → 那个项目
+    func project(for occurrence: Occurrence?) -> VisionProject? {
+        guard let o = occurrence, o.id.hasPrefix("project:") else { return nil }
+        return vision.projects.first { $0.fileURL == o.sourceURL }
+    }
+
+    func openVision(_ v: Vision) {
+        openProjectID = nil
+        openIdeaID = nil
+        openVisionID = v.id
+        page = .vision
+    }
+
+    func openProject(_ p: VisionProject) {
+        openIdeaID = nil
+        openProjectID = p.id
+        page = .vision
+    }
+
+    func openIdea(_ i: Idea) {
+        openProjectID = nil
+        openIdeaID = i.id
+        page = .vision
+    }
+
+    /// 勾选项目的一步；可撤销
+    func toggleStep(_ step: ProjectStep, in project: VisionProject) {
+        guard let root = vaultRoot else { return }
+        do {
+            let before = try VisionStore(vault: root).toggleStep(step, in: project)
+            reload()
+            feedback.show(step.done ? "已取消：\(step.text)" : "做完了：\(step.text)", undo: restorer(project.fileURL, before))
+        } catch {
+            reload()
+            feedback.show("文件刚被改过，已重新载入，再点一次")
+        }
+    }
+
+    /// 快速记一件东西（“名称，位置”）；可撤销
+    func quickAddThing(_ text: String) {
+        guard let root = vaultRoot else { return }
+        do {
+            let url = try ThingStore(vault: root).quickAdd(text, calendar: calendar)
+            reload()
+            feedback.show("已记下：\(url.deletingPathExtension().lastPathComponent)", undo: { [weak self] in
+                try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                self?.reload()
+            })
+        } catch {
+            feedback.show("没能记下：先写名称，再用逗号隔开位置")
+        }
+    }
+
+    /// 加进想买清单；可撤销
+    func addWish(_ text: String) {
+        guard let root = vaultRoot else { return }
+        let store = ThingStore(vault: root)
+        do {
+            let before = try store.appendWish(text, calendar: calendar)
+            reload()
+            let url = store.wishlistURL
+            feedback.show("已加进想买清单", undo: { [weak self] in
+                if let before { try? before.write(to: url, atomically: true, encoding: .utf8) }
+                else { try? FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+                self?.reload()
+            })
+        } catch {
+            feedback.show("没能加进去：\(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - 打开
 
     func openWeb(_ url: URL) {
         if !NSWorkspace.shared.open(url) { feedback.show("打不开链接：\(url.absoluteString)") }
@@ -349,35 +546,6 @@ final class AppModel {
 
     func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
 
-    /// 在 vault 目录里开一个 Claude Code 会话并预填指令（不自动发送）；不可用时复制到剪贴板。
-    func handToAgent(_ prompt: String) {
-        guard let root = vaultRoot else { return }
-        if let link = AgentDeepLink.claudeCode(cwd: root, prompt: prompt),
-           NSWorkspace.shared.urlForApplication(toOpen: link) != nil {
-            NSWorkspace.shared.open(link)
-            feedback.show("已在 Claude Code 里打开，确认后发送")
-        } else {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(prompt, forType: .string)
-            feedback.show("指令已复制，粘贴到你正在用的 agent 对话里")
-        }
-    }
-
-    func agentPromptInbox() -> String {
-        """
-        在 LifeOS vault 里整理收件箱。先读 .lifeos/RULES.md，按 life-manager skill 的“整理收件箱”流程做：
-        逐条告诉我你打算建成什么（类型、时间），我同意后再写进 事项/，建好的从 收件箱.md 删掉，拿不准的留着。
-        最后在 .lifeos/journal.md 追加一段日志。
-        """
-    }
-
-    func agentPromptPrepare(_ item: LifeItem) -> String {
-        """
-        在 LifeOS vault 里为事项「\(item.title)」补准备信息（文件：\(item.fileURL.path)）。
-        先读 .lifeos/RULES.md，按 life-manager skill 的“补准备信息”流程：只写正文，不改时间字段；
-        需要查的（地址、路程、要带的材料、官方要求）查清楚并写来源，拿不准的问我。最后追加 journal。
-        """
-    }
 }
 
 extension Insights {

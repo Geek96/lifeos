@@ -79,7 +79,7 @@ struct ItemEditorSheet: View {
 
             HStack {
                 if isEditing {
-                    Text("准备信息（正文）不在这里改，在 Obsidian 里编辑或交给 agent。")
+                    Text("准备信息（正文）不在这里改。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()

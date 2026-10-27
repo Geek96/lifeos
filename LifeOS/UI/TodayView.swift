@@ -25,6 +25,10 @@ struct TodayView: View {
                     LoadBadge(load: loads[model.calendar.startOfDay(for: day)])
                 }
 
+                if model.config.plugins.health {
+                    HealthTodayCard(day: day, isToday: isToday)
+                }
+
                 if isToday && !model.upcoming.isEmpty {
                     Section {
                         VStack(alignment: .leading, spacing: 2) {

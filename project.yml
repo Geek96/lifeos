@@ -23,6 +23,10 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.geek96.lifeos
+        # 固定签名：用免费 Apple ID 的 Personal Team，签名不随每次编译变化，macOS 就不会反复询问文件夹权限
+        DEVELOPMENT_TEAM: 9DHJNL5JTU
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: Apple Development
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
         SWIFT_VERSION: "6.0"

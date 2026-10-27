@@ -69,7 +69,7 @@ struct ContentView: View {
             ContentUnavailableView {
                 Label("选择你的 LifeOS 文件夹", systemImage: "calendar.badge.plus")
             } description: {
-                Text("LifeOS 把事项存成 Markdown 文件，你和 agent 都能直接读。")
+                Text("LifeOS 把事项存成 Markdown 文件。")
             } actions: {
                 Button("选择文件夹…") { model.chooseVault() }
                     .buttonStyle(.borderedProminent)
@@ -81,6 +81,11 @@ struct ContentView: View {
             case .month: MonthView()
             case .inbox: InboxView()
             case .notes: NotesView()
+            case .health: HealthView()
+            case .things: ThingsView()
+            case .finance: FinanceView()
+            case .travel: TravelView()
+            case .vision: VisionView()
             }
         }
     }

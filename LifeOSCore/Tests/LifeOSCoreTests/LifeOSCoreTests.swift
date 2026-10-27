@@ -187,3 +187,566 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
         #expect(store.inboxLines() == ["下周三前去银行改地址"])
     }
 }
+
+@Suite struct HealthTests {
+    @Test func parsesTargetsAndMeals() {
+        let targets = HealthStore.parseTargets("---\ntype: health-targets\nkcal: 2500\nprotein: 130 g\ncarbs: 330\nfat: 60\n---\n")!
+        #expect(targets == Nutrition(kcal: 2500, protein: 130, carbs: 330, fat: 60))
+        let text = """
+        ---
+        type: health-diet
+        date: 2026-10-22
+        ---
+        # 2026-10-22 饮食
+
+        | 时间 | 吃了什么 | 热量 | 蛋白质 | 碳水 | 脂肪 |
+        |---|---|---|---|---|---|
+        | 08:30 | 两个鸡蛋、一碗燕麦 | ~390 | 20 g | 45 | 14 |
+        | 12:40 | Chick-fil-A 烤鸡块 12 块 |  |  |  |  |
+
+        ## 建议
+        | 不是 | 饮食表 |
+        |---|---|
+        | x | y |
+        """
+        let meals = HealthStore.parseMeals(text)
+        #expect(meals.count == 2)
+        #expect(meals[0].nutrition == Nutrition(kcal: 390, protein: 20, carbs: 45, fat: 14))
+        #expect(!meals[1].isEstimated && meals[1].text == "Chick-fil-A 烤鸡块 12 块")
+        let day = DietDay(date: d("2026-10-22"), meals: meals)
+        #expect(day.total.kcal == 390 && day.pendingCount == 1)
+    }
+
+    @Test func appendsRowAfterTableAndCreatesFile() {
+        let text = "---\ntype: health-diet\n---\n\(HealthStore.tableHeader)\n| 08:30 | 鸡蛋 | 150 | 12 | 1 | 10 |\n\n## 建议\n多吃蛋白\n"
+        let out = HealthStore.insertRow("| 12:00 | 鸡块 |  |  |  |  |", into: text)
+        #expect(out.contains("| 08:30 | 鸡蛋 | 150 | 12 | 1 | 10 |\n| 12:00 | 鸡块 |  |  |  |  |\n\n## 建议"))
+        let fresh = HealthStore.newDayFile(d("2026-10-22"), calendar: cal, firstRow: "| 09:00 | 燕麦 |  |  |  |  |")
+        #expect(HealthStore.parseMeals(fresh).count == 1)
+        #expect(Frontmatter.parse(fresh).fields["date"] == "2026-10-22")
+    }
+
+    @Test func parsesTestsInFileOrderAndTrainingTable() {
+        let t = HealthStore.parseTest("---\ntype: health-test\ndate: 2026-10-22\ntitle: 起点\nweight: 65 kg\npushups: 25\nmile:\n---\n",
+                                      fileURL: file, calendar: cal)!
+        #expect(t.fields.map(\.key) == ["weight", "pushups"])
+        let body = "## 报名\n文字\n\n## 练什么（前 4 周）\n| 动作 | 组×次 |\n|---|---|\n| 卧推 | 3×8 |\n| 肩推 | 3×10 |\n\n## 时间\n…"
+        let plan = TrainingPlan.firstTable(in: body)!
+        #expect(plan.heading.hasPrefix("练什么") && plan.rows.count == 2 && plan.rows[0] == ["卧推", "3×8"])
+        let item = LifeItem.parse(text: "---\ntitle: 力量\nstart: 2026-10-23 12:00\nplugin: Health\n---\n", fileURL: file, calendar: cal)!
+        #expect(item.plugin == "health")
+        let weeks = [["10/22 那一周", "2 km"], ["10/27 那一周", "2.5 km"], ["11/3 那一周", "3 km"]]
+        #expect(TrainingPlan.rows(weeks, for: d("2026-10-29 11:00"), calendar: cal) == [["10/27 那一周", "2.5 km"]])
+        #expect(TrainingPlan.rows(weeks, for: d("2026-10-22 11:00"), calendar: cal) == [["10/22 那一周", "2 km"]])
+        #expect(TrainingPlan.rows(plan.rows, for: d("2026-10-29"), calendar: cal) == plan.rows)
+    }
+
+    @Test func configPluginsDefaultOff() throws {
+        let old = try JSONDecoder().decode(LifeConfig.self, from: Data("{\"layers\":{\"classes\":true,\"courseDeadlines\":true,\"courseOptional\":false}}".utf8))
+        #expect(old.plugins.health == false)
+        let on = try JSONDecoder().decode(LifeConfig.self, from: Data("{\"plugins\":{\"health\":true}}".utf8))
+        #expect(on.plugins.health && !on.plugins.things && !on.plugins.finance)
+    }
+
+    @Test func bodySessionsAndWeekStats() {
+        let body = HealthStore.parseBody("---\ntype: health-body\nupdated: 2026-10-22\nheight: 175 cm\nweight: 65 kg\nbench: 65 lb×8\n---\n", calendar: cal)
+        #expect(body.fields.map(\.key) == ["height", "weight", "bench"] && HealthBody.group("bench") == "力量")
+        let run = HealthStore.parseSession("---\ntype: health-session\ndate: 2026-10-22\nkind: run\ntitle: 轻松跑\ndistance: 2.1 km\nduration: 13:20\n---\n感觉不错\n",
+                                           fileURL: file, calendar: cal)!
+        #expect(run.distanceKm == 2.1 && abs(run.pace! - (13 + 1.0/3) / 2.1) < 1e-9 && run.note == "感觉不错")
+        let lift = HealthStore.parseSession("---\ntype: health-session\ndate: 2026-10-28\nkind: strength\n---\n| 动作 | 重量 | 组×次 |\n|---|---|---|\n| 卧推 | 65 lb | 3×8 |\n| 俯卧撑 |  | 2×15 |\n",
+                                            fileURL: file, calendar: cal)!
+        #expect(lift.volume == 1560.0)
+        let weeks = WeekStats.compute([run, lift], calendar: cal)
+        #expect(weeks.count == 2 && weeks[0].runKm == 2.1 && weeks[1].volume == 1560 && weeks[1].pace == nil)
+        #expect(HealthFormat.minutesText(6.5) == "6:30")
+    }
+}
+
+@Suite struct ThingsTests {
+    private let root = URL(fileURLWithPath: "/tmp/物品")
+
+    @Test func intervalsAndConsumables() {
+        #expect(Interval.parse("45天") == Interval(value: 45, unit: .day))
+        #expect(Interval.parse("2w") == Interval(value: 2, unit: .weekOfYear))
+        #expect(Interval.parse("每 500 km") == nil)
+        let text = "---\ntype: thing\nname: 洗衣液\ncategory: 耗材\nlasts: 45天\nrestocked: 2026-10-01\nprice: 12.99 USD\n---\n"
+        let t = Thing.parse(text: text, fileURL: root.appendingPathComponent("洗衣液.md"), root: root, calendar: cal)!
+        #expect(t.isConsumable && t.price == 12.99 && t.currency == "USD")
+        #expect(DateText.format(t.nextRestock(calendar: cal)!, withTime: false, calendar: cal) == "2026-11-15")
+        let occ = ThingCalendar.occurrences([t], in: DateInterval(start: d("2026-11-01"), duration: 30 * 86400), calendar: cal)
+        #expect(occ.count == 1 && occ[0].style == .window && occ[0].title == "补货：洗衣液")
+    }
+
+    @Test func detailedMaintenance() {
+        let text = """
+        ---
+        type: thing
+        name: 自行车
+        category: 交通
+        maintenance: detailed
+        photo: 照片/bike.jpg
+        return_until: 2026-11-05
+        ---
+        ## 规格
+        | 部件 | 型号 |
+        |---|---|
+        | 轮胎 | 700×28c |
+
+        ## 保养计划
+        | 项目 | 间隔 | 上次 | 备注 |
+        |---|---|---|---|
+        | 链条上油 | 每 2 周 | 2026-10-10 | |
+        | 换刹车片 | 每 500 km | | 看磨损 |
+
+        ## 保养记录
+        | 日期 | 做了什么 | 里程 | 花费 | 在哪做 |
+        |---|---|---|---|---|
+        | 2026-09-01 | 买车时调校 | 0 | 0 | 店里 |
+        | 2026-10-10 | 链条上油 | 120 km | 8 | 自己 |
+        """
+        let t = Thing.parse(text: text, fileURL: root.appendingPathComponent("自行车.md"), root: root, calendar: cal)!
+        #expect(t.detailed && t.photo?.lastPathComponent == "bike.jpg" && t.specs == [["轮胎", "700×28c"]])
+        let tasks = t.maintenanceTasks(calendar: cal)
+        #expect(tasks.count == 2 && DateText.format(tasks[0].next!, withTime: false, calendar: cal) == "2026-10-24")
+        #expect(tasks[1].next == nil && tasks[1].everyText == "每 500 km")
+        let log = t.maintenanceLog(calendar: cal)
+        #expect(log.first?.what == "链条上油" && log.compactMap(\.cost).reduce(0, +) == 8)
+        let occ = ThingCalendar.occurrences([t], in: DateInterval(start: d("2026-10-15"), duration: 30 * 86400), calendar: cal)
+        #expect(Set(occ.map(\.title)) == ["退货截止：自行车", "保养：自行车 · 链条上油"])
+    }
+}
+
+
+@Suite struct FinanceTests {
+    @Test func ledgerAccountsSubscriptions() {
+        let ledger = """
+        ---
+        type: ledger
+        month: 2026-10
+        ---
+        | 日期 | 说明 | 类别 | 金额 | 收支 | 账户 |
+        |---|---|---|---|---|---|
+        | 2026-10-22 | Chick-fil-A | 餐饮 | 12.47 | 支出 | 借记卡 |
+        | 2026-10-20 | Kroger | 买菜 | $35.10 |  | 借记卡 |
+        | 2026-10-01 | 家里打的生活费 | 生活费 | 1500 | 收入 | 借记卡 |
+        """
+        let es = FinanceStore.parseLedger(ledger, fileID: "2026-10.md", calendar: cal)
+        #expect(es.count == 3 && es[1].kind == .expense && es[1].amount == 35.10 && es[2].kind == .income)
+        let snap = FinanceSnapshot(entries: es, accounts: [], subscriptions: [], budget: [:])
+        let cats = snap.spendingByCategory(inMonthOf: d("2026-10-15"), calendar: cal)
+        #expect(cats.first?.category == "买菜" && cats.count == 2)
+        let months = snap.monthlyTotals(endingAt: d("2026-10-15"), months: 3, calendar: cal)
+        #expect(months.count == 3 && months[2].income == 1500 && months[0].expense == 0)
+
+        let accounts = FinanceStore.parseAccounts("| 账户 | 类型 | 余额 | 更新日期 |\n|---|---|---|---|\n| 借记卡 | 支票 | 2,340.55 | 2026-10-22 |\n| 信用卡 | 信用 | -210 | 2026-10-22 |\n", calendar: cal)
+        #expect(accounts.count == 2 && accounts[0].balance == 2340.55 && accounts[1].balance == -210)
+
+        let subs = FinanceStore.parseSubscriptions("| 名称 | 金额 | 周期 | 下次扣款 | 账户 | 类别 |\n|---|---|---|---|---|---|\n| Claude | 20 | 每月 | 2026-11-05 | 信用卡 | 订阅 |\n| iCloud | 35.88 | 每年 | 2027-03-01 | 信用卡 | |\n", calendar: cal)
+        #expect(subs.count == 2 && subs[0].monthly == 20 && abs(subs[1].monthly! - 2.99) < 0.001)
+        let charges = subs[0].charges(in: DateInterval(start: d("2026-10-01"), end: d("2027-01-01")), calendar: cal)
+        #expect(charges.map { DateText.format($0, withTime: false, calendar: cal) } == ["2026-10-05", "2026-11-05", "2026-12-05"])
+        #expect(FinanceStore.parseBudget("| 类别 | 每月 |\n|---|---|\n| 餐饮 | 400 |\n") == ["餐饮": 400])
+    }
+}
+
+@Suite struct TravelTests {
+    private let root = URL(fileURLWithPath: "/tmp/出行")
+
+    @Test func multiDayTripParsesAndToggles() throws {
+        let text = """
+        ---
+        type: trip
+        title: 感恩节佛罗里达
+        route: Atlanta → Orlando → Miami
+        start: 2026-11-25
+        end: 2026-11-28
+        status: 规划中
+        ---
+        # 感恩节佛罗里达
+
+        ## 每天
+        ### 第 1 天 · 2026-11-25 · Orlando
+        | 时间 | 安排 | 地点 | 备注 |
+        |---|---|---|---|
+        | 08:00–15:00 | 开车去 Orlando | I-75 | |
+        | 晚上 | 吃饭 | | |
+
+        ### 第 2 天 · 2026-11-26 · Orlando
+        | 时间 | 安排 | 地点 | 备注 |
+        |---|---|---|---|
+        | 10:00 | 主题公园 | | |
+
+        ## 住宿
+        | 入住 | 退房 | 城市 | 名称 | 地址 | 确认号 | 价格 | 免费取消截止 |
+        |---|---|---|---|---|---|---|---|
+        | 2026-11-25 | 2026-11-27 | Orlando | 某酒店 | | | $240 | 2026-11-20 |
+
+        ## 要带
+        - [ ] 驾照
+        - [x] 充电器
+
+        ## 期限
+        | 截止 | 要做的事 |
+        |---|---|
+        | 2026-11-10 | 订酒店 |
+
+        ## 预算
+        | 项目 | 预计 | 实际 |
+        |---|---|---|
+        | 住宿 | 240 | |
+        | 油费 | 80 | 75 |
+        """
+        let trip = Trip.parse(text: text, fileURL: root.appendingPathComponent("t.md"), root: root, calendar: cal)!
+        #expect(trip.dayCount(calendar: cal) == 4 && trip.days.count == 2 && trip.days[0].city == "Orlando")
+        #expect(trip.days[0].items[0].start != nil && trip.days[0].items[0].end != nil && trip.days[0].items[1].start == nil)
+        #expect(trip.lodging.first?.name == "某酒店" && trip.lodging.first?.freeCancelUntil != nil)
+        #expect(trip.deadlines.count == 1 && trip.budget.count == 2 && trip.budget[1].actual == 75)
+        #expect(trip.packing.map(\.done) == [false, true])
+        let lines = text.components(separatedBy: "\n")
+        #expect(lines[trip.packing[0].line].hasSuffix("驾照"))
+
+        let occ = TravelCalendar.occurrences([trip], in: DateInterval(start: d("2026-11-01"), end: d("2026-12-01")), calendar: cal)
+        #expect(occ.contains { $0.title == "出行：感恩节佛罗里达" && $0.allDay })
+        #expect(occ.contains { $0.title == "开车去 Orlando" } && occ.contains { $0.title == "订酒店" && $0.style == .deadline })
+        #expect(occ.contains { $0.title == "免费取消截止：某酒店" })
+
+        // 勾选只改那一行
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("t.md")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        let onDisk = Trip.parse(text: text, fileURL: url, root: dir, calendar: cal)!
+        try TravelStore(vault: dir).togglePacking(onDisk.packing[0], in: onDisk)
+        let after = try String(contentsOf: url, encoding: .utf8)
+        #expect(after.contains("- [x] 驾照") && after.replacingOccurrences(of: "- [x] 驾照", with: "- [ ] 驾照") == text)
+    }
+}
+
+@Suite struct TripShareTests {
+    private let text = """
+    ---
+    type: trip
+    title: 测试之旅
+    route: Atlanta → Orlando
+    start: 2026-11-25
+    end: 2026-11-26
+    with: 小明
+    ---
+    ## 每天
+    ### 第 1 天 · 2026-11-25 · Orlando
+    | 时间 | 安排 | 地点 | 备注 |
+    |---|---|---|---|
+    | 10:00–12:00 | 逛 <公园> | Lake Eola | |
+
+    ## 交通
+    | 日期 | 时间 | 方式 | 从 | 到 | 订单 / 备注 |
+    |---|---|---|---|---|---|
+    | 2026-11-25 | 08:00 | 开车 | Atlanta | Orlando | 订单 ABC123 |
+
+    ## 住宿
+    | 入住 | 退房 | 城市 | 名称 | 地址 | 确认号 | 价格 | 免费取消截止 |
+    |---|---|---|---|---|---|---|---|
+    | 2026-11-25 | 2026-11-26 | Orlando | 湖边酒店 | 1 Lake St | CONF99 | $120 | |
+
+    ## 地点与须知
+    - **Lake Eola**：全天开放
+
+    ## 要带
+    - [ ] 驾照
+
+    ## 期限
+    | 截止 | 要做的事 |
+    |---|---|
+    | 2026-11-10 | 订酒店 |
+    """
+
+    @Test func privacyFilterAndFormats() {
+        let trip = Trip.parse(text: text, fileURL: URL(fileURLWithPath: "/tmp/出行/t.md"), root: URL(fileURLWithPath: "/tmp/出行"), calendar: cal)!
+        let plain = TripShare.text(trip, calendar: cal)
+        #expect(plain.contains("【测试之旅】") && plain.contains("10:00–12:00  逛 <公园>（Lake Eola）") && plain.contains("住：湖边酒店"))
+        #expect(!plain.contains("CONF99") && !plain.contains("1 Lake St") && !plain.contains("ABC123") && !plain.contains("驾照") && !plain.contains("$120"))
+        #expect(plain.contains("- Lake Eola：全天开放"))
+        let all = TripShare.text(trip, options: .init(prices: true, privateDetails: true, packing: true), calendar: cal)
+        #expect(all.contains("CONF99") && all.contains("1 Lake St") && all.contains("ABC123") && all.contains("☐ 驾照") && all.contains("$120"))
+
+        let ics = TripShare.ics(trip, calendar: cal)
+        #expect(ics.components(separatedBy: "BEGIN:VEVENT").count - 1 == 3)
+        #expect(ics.contains("DTSTART;VALUE=DATE:20261125") && ics.contains("DTEND;VALUE=DATE:20261127"))
+        #expect(ics.components(separatedBy: "\r\n").allSatisfy { $0.utf8.count <= 75 })
+        #expect(!ics.contains("CONF99"))
+
+        let html = TripShare.html(trip, calendar: cal)
+        #expect(html.contains("逛 &lt;公园&gt;") && !html.contains("CONF99") && html.contains("<title>测试之旅</title>"))
+    }
+}
+
+@Suite struct MicronutrientTests {
+    @Test func microColumnsByHeaderAndTargets() {
+        let text = """
+        ---
+        type: health-diet
+        date: 2026-10-22
+        ---
+        | 时间 | 吃了什么 | 热量 | 蛋白质 | 碳水 | 脂肪 | 钠 | 添加糖 | 纤维 | 维D |
+        |---|---|---|---|---|---|---|---|---|---|
+        | 12:00 | 三明治 | 420 | 29 | 41 | 18 | 1400 | 6 | 1 | 0 |
+        | 18:00 | 面 | 455 | 14 | 96 | 2 | 1100 |  | 3.5 | |
+        | 20:00 | App 里记的 |  |  |  |  |  |  |  |  |
+        """
+        let meals = HealthStore.parseMeals(text)
+        #expect(meals.count == 3 && meals[2].nutrition == nil)
+        let total = DietDay(date: d("2026-10-22"), meals: meals).total
+        #expect(total.micros["sodium"] == 2500 && total.micros["fiber"] == 4.5 && total.micros["sugar"] == 6 && total.micros["vitamin_d"] == 0)
+        let t = HealthStore.parseTargets("---\nkcal: 2500\nprotein: 130\nsodium: 2300\nfiber: 38\nvitamin_d: 15\n---\n")!
+        #expect(t.micros == ["sodium": 2300, "fiber": 38, "vitamin_d": 15])
+        #expect(Micronutrient.forHeader("添加糖")?.key == "sugar" && Micronutrient.forHeader("维生素C")?.key == "vitamin_c")
+        #expect(HealthStore.tableHeader.hasPrefix("| 时间 | 吃了什么 | 热量 | 蛋白质 | 碳水 | 脂肪 | 钠 |"))
+    }
+}
+
+@Suite struct WishlistTests {
+    @Test func wishlistQuickAddAndMatch() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = ThingStore(vault: dir)
+        #expect(try store.appendWish("充电宝", now: d("2026-10-22"), calendar: cal) == nil)
+        try store.appendWish("机械键盘", now: d("2026-10-23"), calendar: cal)
+        let wishes = store.loadWishlist(calendar: cal)
+        #expect(wishes.map(\.name) == ["充电宝", "机械键盘"] && wishes.allSatisfy(\.isOpen))
+        let url = try store.quickAdd("剪刀，厨房第二个抽屉", now: d("2026-10-22"), calendar: cal)
+        let url2 = try store.quickAdd("剪刀", calendar: cal)
+        #expect(url.lastPathComponent == "剪刀.md" && url2.lastPathComponent == "剪刀 2.md")
+        let things = store.load(calendar: cal)
+        #expect(things.count == 2 && things.contains { $0.location == "厨房第二个抽屉" })
+        let anker = Thing.parse(text: "---\ntype: thing\nname: 充电宝 Anker 25000mAh\n---\n", fileURL: dir.appendingPathComponent("a.md"), root: dir, calendar: cal)!
+        let mac = Thing.parse(text: "---\ntype: thing\nname: MacBook Pro 14\n---\n", fileURL: dir.appendingPathComponent("m.md"), root: dir, calendar: cal)!
+        #expect(ThingMatch.similar(to: "充电宝", in: [anker, mac]).map(\.name) == ["充电宝 Anker 25000mAh"])
+        #expect(Set(ThingMatch.similar(to: "macbook 充电器", in: [anker, mac]).map(\.name)) == ["MacBook Pro 14", "充电宝 Anker 25000mAh"])
+        #expect(ThingMatch.similar(to: "机械键盘", in: [anker, mac]).isEmpty)
+    }
+}
+
+
+@Suite struct VisionTests {
+    private func span(_ s: String) -> (String, String)? {
+        FuzzyTime.parse(s, calendar: cal).map {
+            (DateText.format($0.start, withTime: false, calendar: cal), DateText.format($0.end, withTime: false, calendar: cal))
+        }
+    }
+
+    @Test func fuzzyTimes() {
+        #expect(span("2026-12-15")! == ("2026-12-15", "2026-12-16"))
+        #expect(span("2026-12")! == ("2026-12-01", "2027-01-01"))
+        #expect(span("2026-12 中旬")! == ("2026-12-11", "2026-12-21"))
+        #expect(span("2027-01下旬")! == ("2027-01-21", "2027-02-01"))
+        #expect(span("2027年3月")! == ("2027-03-01", "2027-04-01"))
+        #expect(span("2027 夏")! == ("2027-06-01", "2027-09-01"))
+        #expect(span("2028秋")! == ("2028-09-01", "2028-12-01"))
+        #expect(span("2027 冬")! == ("2027-12-01", "2028-03-01"))
+        #expect(span("2028")! == ("2028-01-01", "2029-01-01"))
+        #expect(span("寒假前") == nil && span("") == nil)
+        #expect(FuzzyTime.exactDay("2026-11-21", calendar: cal) != nil && FuzzyTime.exactDay("2026-11", calendar: cal) == nil)
+    }
+
+    @Test func parsesTimelineAndListVisions() {
+        let root = URL(fileURLWithPath: "/tmp/远景")
+        let phd = Vision.parse(text: """
+        ---
+        type: vision
+        title: 读 PhD
+        shape: timeline
+        start: 2026-10
+        target: 2028 秋
+        tags: 学业、研究
+        ---
+        > 做 agent 研究的 PhD
+
+        ## 时间甬道
+        | 时间 | checkpoint | 结果 | 一句话 |
+        |---|---|---|---|
+        | 2026-10 下旬 | 第一次见老师 | 到了 | 题目定了 |
+        | 2027-01 下旬 | workshop 投稿 | | |
+        | 寒假前 | 读完 10 篇 | | |
+        """, fileURL: root.appendingPathComponent("愿景/读 PhD.md"), root: root, calendar: cal)!
+        #expect(phd.summary == "做 agent 研究的 PhD" && phd.shape == .timeline && phd.tags == ["学业", "研究"])
+        #expect(phd.checkpoints.map(\.result) == [.reached, .none, .none] && phd.checkpoints[2].interval == nil)
+        let s = phd.span(calendar: cal)!
+        #expect(DateText.format(s.start, withTime: false, calendar: cal) == "2026-10-01" && DateText.format(s.end, withTime: false, calendar: cal) == "2028-12-01")
+        #expect(phd.nextCheckpoint(now: d("2026-10-22"))?.text == "workshop 投稿")
+
+        let travel = Vision.parse(text: """
+        ---
+        type: vision
+        title: 旅行与摄影
+        shape: list
+        ---
+        ## 清单
+        | 地方 | 状态 | 标签 | 时间 | 照片 | 备注 |
+        |---|---|---|---|---|---|
+        | Westside Park | 去过 | 美国、Atlanta · 公园 | 2026-10-24 | 照片/a.jpg、照片/b.jpg | |
+        | Stone Mountain | 想去 | 美国, Atlanta | | | 和同学 |
+        """, fileURL: root.appendingPathComponent("愿景/旅行.md"), root: root, calendar: cal)!
+        #expect(travel.shape == .list && travel.places.map(\.visited) == [true, false])
+        #expect(travel.places[0].tags == ["美国", "Atlanta", "公园"] && travel.places[0].photos.map(\.lastPathComponent) == ["a.jpg", "b.jpg"])
+        #expect(travel.places[1].note == "和同学")
+    }
+
+    @Test func projectStepsProgressToggleAndCalendar() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = VisionStore(vault: dir)
+        try FileManager.default.createDirectory(at: store.projectsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: store.ideasDir, withIntermediateDirectories: true)
+        let url = store.projectsDir.appendingPathComponent("EarlyEval.md")
+        try """
+        ---
+        type: project
+        title: EarlyEval workshop 论文
+        vision: "[[读 PhD]]"
+        status: 进行中
+        target: 2027-01 下旬
+        ---
+        > 投出一篇 workshop 论文
+
+        ## 步骤
+        - [x] 读 EarlyEval 和 PPI
+        - [ ] 写一页 pitch · 2026-10-25
+        - [ ] 见老师 · 2026-10-28 15:00
+        - [ ] 跑第一个实验
+
+        ## 进展记录
+        - 2026-10-22 定了路线 B
+        """.write(to: url, atomically: true, encoding: .utf8)
+        try "---\ntype: idea\ntitle: 拍一部纪录片\ncategory: 创作\ncreated: 2026-10-22\n---\n关于 GT 国际生的一天。\n".write(
+            to: store.ideasDir.appendingPathComponent("纪录片.md"), atomically: true, encoding: .utf8)
+
+        var snap = store.load(calendar: cal)
+        var p = snap.projects[0]
+        #expect(p.vision == "读 PhD" && p.goal == "投出一篇 workshop 论文" && p.steps.count == 4)
+        #expect(p.doneCount == 1 && p.progress == 0.25 && p.nextStep?.text == "写一页 pitch")
+        #expect(p.steps[2].hasTime && p.steps[1].date != nil && p.steps[3].date == nil)
+        #expect(p.log.first?.date == "2026-10-22" && p.log.first?.text == "定了路线 B")
+        #expect(snap.unfiledProjects.count == 1)
+        #expect(snap.ideas.first?.category == "创作" && snap.ideas.first?.excerpt == "关于 GT 国际生的一天。")
+
+        let week = DateInterval(start: d("2026-10-24"), end: d("2026-10-31"))
+        let occ = VisionCalendar.occurrences(snap, in: week, calendar: cal)
+        #expect(occ.map(\.title) == ["写一页 pitch", "见老师"] && occ[0].allDay && !occ[1].allDay)
+
+        let before = try store.toggleStep(p.steps[1], in: p)
+        #expect(before.contains("- [ ] 写一页 pitch · 2026-10-25"))
+        snap = store.load(calendar: cal)
+        p = snap.projects[0]
+        #expect(p.doneCount == 2 && p.steps[1].done && p.steps[1].text == "写一页 pitch")
+        // 文件被改过（这一行内容变了）就拒绝，不乱写
+        var stale = p.steps[3]
+        stale.text = "别的事"
+        #expect(throws: (any Error).self) { try store.toggleStep(stale, in: p) }
+    }
+
+    @Test func pluginFlagDefaultsOff() throws {
+        let c = try JSONDecoder().decode(LifeConfig.Plugins.self, from: Data(#"{"travel": true}"#.utf8))
+        #expect(c.travel && !c.vision)
+    }
+}
+
+@Suite struct UndatedTripTests {
+    @Test func undatedTripParsesAndStaysOffCalendar() {
+        let root = URL(fileURLWithPath: "/tmp/出行")
+        let trip = Trip.parse(text: """
+        ---
+        type: trip
+        title: Stone Mountain
+        status: 想法
+        ---
+        ## 每天
+        ### 第 1 天 · 待定
+        | 时间 | 安排 | 地点 | 备注 |
+        |---|---|---|---|
+        | 10:00 | 爬山 | Stone Mountain | |
+        """, fileURL: root.appendingPathComponent("Stone Mountain.md"), root: root, calendar: cal)!
+        #expect(!trip.dated && trip.days.count == 1 && trip.days[0].date == nil && trip.days[0].items[0].start == nil)
+        #expect(TripShare.dateRange(trip, calendar: cal) == "日期未定")
+        let year = DateInterval(start: d("2026-01-01"), end: d("2027-01-01"))
+        #expect(TravelCalendar.occurrences([trip], in: year, calendar: cal).isEmpty)
+        #expect(!TripShare.ics(trip, options: .init(), calendar: cal).contains("DTSTART;VALUE=DATE"))
+    }
+
+    @Test func placeLinksToTrip() {
+        let root = URL(fileURLWithPath: "/tmp/远景")
+        let v = Vision.parse(text: """
+        ---
+        type: vision
+        title: 旅行
+        shape: list
+        ---
+        ## 清单
+        | 地方 | 状态 | 标签 | 时间 | 照片 | 行程 | 备注 |
+        |---|---|---|---|---|---|---|
+        | Stone Mountain | 想去 | 美国 | | | [[Stone Mountain]] | |
+        | Emory | 想去 | 美国 | | | | |
+        """, fileURL: root.appendingPathComponent("愿景/旅行.md"), root: root, calendar: cal)!
+        #expect(v.places.map(\.trip) == ["Stone Mountain", ""])
+    }
+}
+
+@Suite struct FitnessTests {
+    private let url = URL(fileURLWithPath: "/tmp/健康/动作/卧推.md")
+
+    @Test func exerciseRecordsBestsAndHint() {
+        let ex = Exercise.parse(text: """
+        ---
+        type: exercise
+        name: 卧推
+        name_en: Barbell Bench Press
+        primary: chest
+        secondary: front-deltoids, triceps
+        day: 周三 推
+        target: 3×8
+        step: 5
+        ---
+        ## 记录
+        | 日期 | 重量 | 次数 | 组数 | 备注 |
+        |---|---|---|---|---|
+        | 2026-10-28 | 65 | 8 | 3 | |
+        | 2026-11-04 | 70 | 7 | 3 | 最后一组 7 个 |
+        | 2026-11-06 | 70 | 6 | 3 | |
+        """, fileURL: url, calendar: cal)!
+        #expect(ex.primary == ["chest"] && ex.secondary == ["front-deltoids", "triceps"] && ex.records.count == 3)
+        #expect(ex.targetSetsReps!.sets == 3 && ex.targetSetsReps!.reps == 8)
+        let bests = ex.weeklyBests(calendar: cal)
+        #expect(bests.count == 2 && bests[1].record.reps == 7)
+        #expect(ex.nextHint?.contains("保持 70 lb") == true)
+        // 做满了就加量
+        var full = ex
+        full.records = [ex.records[0]]
+        #expect(full.nextHint?.contains("下次试 70 lb") == true)
+        #expect(ex.records[0].estimated1RM.map { abs($0 - 65 * (1 + 8.0 / 30)) < 0.001 } == true)
+    }
+
+    @Test func timedTargetAndCoverage() {
+        let plank = Exercise.parse(text: "---\ntype: exercise\nname: 平板支撑\nkind: timed\nprimary: abs\nsecondary: obliques\ntarget: 3×30 秒\n---\n",
+                                   fileURL: url, calendar: cal)!
+        #expect(plank.kind == .timed && plank.targetSetsReps!.reps == 30)
+        let cov = MuscleCoverage.compute([plank])
+        #expect(cov["abs"]!.primary.count == 1 && cov["obliques"]!.secondary.count == 1 && !cov["chest"]!.trained)
+    }
+
+    @Test func weekPlanParses() {
+        let plan = WeekPlan.parse("""
+        ## 学期一周
+        | 星期 | 时间 | 内容 | 动作 |
+        |---|---|---|---|
+        | 周一 | 12:00–13:00 | 力量 · 背 | 高位下拉、坐姿划船 |
+        | 周日 | — | 休息 | |
+
+        - 每天拉伸
+        """)
+        #expect(plan.days.count == 2 && plan.days[0].exercises == ["高位下拉", "坐姿划船"] && plan.days[1].exercises.isEmpty)
+        #expect(plan.notes == "- 每天拉伸" && WeekPlan.index(of: "周日") == 7)
+    }
+
+    @Test func bodyMapCoversCatalog() {
+        let keys = Set((BodyMapData.anterior + BodyMapData.posterior).map(\.muscle))
+        #expect(Muscle.all.allSatisfy { keys.contains($0.key) })
+    }
+}

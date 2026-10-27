@@ -11,6 +11,14 @@ struct InspectorView: View {
                 if let o = model.selected {
                     if let item = model.item(for: o) {
                         LifeDetail(occurrence: o, item: item)
+                    } else if let thing = model.thing(for: o) {
+                        ThingOccurrenceDetail(occurrence: o, thing: thing)
+                    } else if let trip = model.trip(for: o) {
+                        TripOccurrenceDetail(occurrence: o, trip: trip)
+                    } else if let project = model.project(for: o) {
+                        ProjectOccurrenceDetail(occurrence: o, project: project)
+                    } else if o.id.hasPrefix("finance:") {
+                        FinanceOccurrenceDetail(occurrence: o)
                     } else {
                         CourseDetail(occurrence: o)
                     }
@@ -98,16 +106,10 @@ struct LifeDetail: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("准备信息").font(.headline)
             if item.body.isEmpty {
-                Text("还没有。可以让 agent 查地址、路程、要带的材料。").font(.callout).foregroundStyle(.secondary)
+                Text("还没有。").font(.callout).foregroundStyle(.secondary)
             } else {
-                Text(markdown(item.body)).font(.callout).textSelection(.enabled)
+                MarkdownBlocks(text: item.body).font(.callout)
             }
-            Button {
-                model.handToAgent(model.agentPromptPrepare(item))
-            } label: {
-                Label(item.body.isEmpty ? "让 agent 准备" : "让 agent 补充", systemImage: "sparkles")
-            }
-            .controlSize(.small)
         }
 
         Divider()
@@ -119,30 +121,13 @@ struct LifeDetail: View {
                         .help(item.done ? "恢复成未办" : "收起来；不点也只会自然淡出")
                 }
             }
-            HStack {
-                Button("在 Obsidian 中打开") { model.openInObsidian(item.fileURL) }
-                Button("在访达中显示") { model.reveal(item.fileURL) }
-            }
-            .buttonStyle(.link)
+            Button("在访达中显示") { model.reveal(item.fileURL) }
+                .buttonStyle(.link)
             Button("移到废纸篓", role: .destructive) { model.trash(item) }
                 .buttonStyle(.link)
                 .foregroundStyle(Theme.red)
         }
         .font(.callout)
-    }
-
-    /// 正文的简单渲染：标题行加粗、列表换成圆点，其余按行内 markdown（链接可点）
-    private func markdown(_ s: String) -> AttributedString {
-        let lines = s.components(separatedBy: "\n").map { line -> String in
-            let t = line.trimmingCharacters(in: .whitespaces)
-            if t.hasPrefix("#") { return "**" + t.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces) + "**" }
-            if t.hasPrefix("- ") || t.hasPrefix("* ") { return "• " + t.dropFirst(2) }
-            if t.hasPrefix("> ") { return "_" + t.dropFirst(2) + "_" }
-            return line
-        }
-        let text = lines.joined(separator: "\n")
-        return (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(text)
     }
 }
 

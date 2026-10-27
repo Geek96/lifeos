@@ -1,7 +1,7 @@
 import SwiftUI
 import LifeOSCore
 
-/// 备忘：查阅用的固定资料（证件到期、订阅、地址……），在 Obsidian 里编辑，这里只列出来。
+/// 备忘：查阅用的固定资料（证件到期、订阅、地址……），这里只列出来。
 struct NotesView: View {
     @Environment(AppModel.self) private var model
 
@@ -31,9 +31,8 @@ struct NotesView: View {
                     }
                     .padding(.vertical, 4)
                     .contentShape(Rectangle())
-                    .onTapGesture(count: 2) { model.openInObsidian(note.url) }
+                    .onTapGesture(count: 2) { model.reveal(note.url) }
                     .contextMenu {
-                        Button("在 Obsidian 中打开") { model.openInObsidian(note.url) }
                         Button("在访达中显示") { model.reveal(note.url) }
                     }
                 }

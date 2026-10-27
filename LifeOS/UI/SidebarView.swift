@@ -29,6 +29,26 @@ struct SidebarView: View {
                 Label("备忘", systemImage: "note.text").tag(AppModel.Page.notes)
             }
 
+            if model.config.plugins.health || model.config.plugins.things || model.config.plugins.finance || model.config.plugins.travel || model.config.plugins.vision {
+                Section("插件") {
+                    if model.config.plugins.health {
+                        Label("健康", systemImage: "heart").tag(AppModel.Page.health)
+                    }
+                    if model.config.plugins.things {
+                        Label("物品", systemImage: "shippingbox").tag(AppModel.Page.things)
+                    }
+                    if model.config.plugins.finance {
+                        Label("消费", systemImage: "creditcard").tag(AppModel.Page.finance)
+                    }
+                    if model.config.plugins.travel {
+                        Label("出行", systemImage: "airplane").tag(AppModel.Page.travel)
+                    }
+                    if model.config.plugins.vision {
+                        Label("远景", systemImage: "mountain.2").tag(AppModel.Page.vision)
+                    }
+                }
+            }
+
             Section("图层") {
                 LayerToggle(title: "生活事项", style: .event, isOn: .constant(true), locked: true)
                 LayerToggle(title: "上课", style: .classSession, isOn: Binding(

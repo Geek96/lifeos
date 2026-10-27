@@ -35,11 +35,13 @@ public struct LifeItem: Identifiable, Hashable, Sendable {
     public var addedBy: String
     /// 正文（准备信息）
     public var body: String
+    /// 属于哪个插件（如 `health`）；空 = 普通事项
+    public var plugin: String
 
     public init(fileURL: URL, kind: Kind, title: String, start: Date, end: Date? = nil, startHasTime: Bool = true,
                 allDay: Bool = false, location: String = "", repeatRule: RepeatRule? = nil, repeatUntil: Date? = nil,
                 remindDays: Int = 3, estimateHours: Double? = nil, done: Bool = false, addedBy: String = "user",
-                body: String = "") {
+                body: String = "", plugin: String = "") {
         self.fileURL = fileURL
         self.kind = kind
         self.title = title
@@ -55,6 +57,7 @@ public struct LifeItem: Identifiable, Hashable, Sendable {
         self.done = done
         self.addedBy = addedBy
         self.body = body
+        self.plugin = plugin
     }
 
     /// event 的时长（秒）；没写结束时默认 1 小时
@@ -92,7 +95,8 @@ public struct LifeItem: Identifiable, Hashable, Sendable {
             estimateHours: f["estimate"].flatMap(Hours.parse),
             done: Frontmatter.bool(f["done"]) ?? false,
             addedBy: f["added_by"] ?? "user",
-            body: doc.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            body: doc.body.trimmingCharacters(in: .whitespacesAndNewlines),
+            plugin: f["plugin"]?.lowercased() ?? ""
         )
     }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 import LifeOSCore
 
-/// 收件箱：一句话记下来，之后交给 agent 整理成日历事项（agent 会先问你）。
+/// 收件箱：一句话记下来，之后整理成日历事项。
 struct InboxView: View {
     @Environment(AppModel.self) private var model
     @State private var draft = ""
@@ -39,15 +39,6 @@ struct InboxView: View {
                     }
                 }
                 .listStyle(.inset(alternatesRowBackgrounds: true))
-                HStack {
-                    Button {
-                        model.handToAgent(model.agentPromptInbox())
-                    } label: {
-                        Label("交给 agent 整理（\(model.inbox.count) 条）", systemImage: "sparkles")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    Text("agent 会逐条问你，同意后才放进日历。").font(.caption).foregroundStyle(.secondary)
-                }
             }
         }
         .padding(Theme.Space.xl)
