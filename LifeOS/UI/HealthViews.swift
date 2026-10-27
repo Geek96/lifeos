@@ -190,10 +190,12 @@ struct HealthView: View {
     @AppStorage("healthTab") private var tab = HealthTab.overview.rawValue
 
     enum HealthTab: String, CaseIterable, Identifiable {
-        case overview, nutrition, fitness, log
+        case overview, nutrition, fitness, log, sleep
         var id: String { rawValue }
         var label: String {
-            switch self { case .overview: "概览"; case .nutrition: "营养"; case .fitness: "健身"; case .log: "训练记录" }
+            switch self {
+            case .overview: "概览"; case .nutrition: "营养"; case .fitness: "健身"; case .log: "训练记录"; case .sleep: "睡眠"
+            }
         }
     }
 
@@ -209,6 +211,7 @@ struct HealthView: View {
                 case .nutrition: HealthNutritionPage()
                 case .fitness: FitnessPage()
                 case .log: HealthLogPage()
+                case .sleep: SleepPage()
                 }
             }
             .padding(Theme.Space.xl)
@@ -254,6 +257,8 @@ struct HealthOverview: View {
                 StatTile(title: "这周跑了", value: week.map { String(format: "%.1f km", $0.runKm) } ?? "0 km")
                 StatTile(title: "这周训练", value: "\(week?.sessions ?? 0) 次")
                 StatTile(title: "平均配速", value: week?.pace.map { HealthFormat.minutesText($0) + " /km" } ?? "—")
+                StatTile(title: "昨晚睡了", value: model.health.sleep(on: today, calendar: cal)?.minutes
+                    .map(HealthFormat.sleepText) ?? "—")
             }
 
             VStack(alignment: .leading, spacing: Theme.Space.s) {

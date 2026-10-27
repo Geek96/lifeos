@@ -750,3 +750,45 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
         #expect(Muscle.all.allSatisfy { keys.contains($0.key) })
     }
 }
+
+@Suite struct SleepTests {
+    @Test func parsesTableAndComputesAcrossMidnight() {
+        let text = """
+        ---
+        type: health-sleep
+        month: 2026-10
+        ---
+        # 2026-10 睡眠
+
+        | 日期 | 入睡 | 起床 | 时长 |
+        |---|---|---|---|
+        | 2026-10-26 | 01:30 | 12:00 | |
+        | 2026-10-27 | 23:40 | 07:10 | |
+        | 2026-10-28 | | 08:00 | |
+        | 2026-10-29 | 00:10 | 08:00 | 7:30 |
+        """
+        let nights = HealthStore.parseSleep(text, calendar: cal)
+        #expect(nights.count == 4)
+        #expect(nights[0].minutes == 630)
+        #expect(nights[1].minutes == 450)
+        #expect(nights[2].bedtime == nil && nights[2].wake == "08:00" && nights[2].minutes == nil)
+        // 写了时长就用写的，不重算
+        #expect(nights[3].minutes == 450)
+        #expect(cal.isDate(nights[1].date, inSameDayAs: d("2026-10-27")))
+    }
+
+    @Test func averagesOnlyNightsWithDuration() {
+        var s = HealthSnapshot.empty
+        s.sleep = [
+            SleepNight(date: d("2026-10-20"), bedtime: nil, wake: nil, minutes: 600),
+            SleepNight(date: d("2026-10-26"), bedtime: "01:30", wake: "12:00", minutes: 420),
+            SleepNight(date: d("2026-10-27"), bedtime: nil, wake: "08:00", minutes: nil),
+            SleepNight(date: d("2026-10-28"), bedtime: "23:00", wake: "07:00", minutes: 480),
+        ]
+        #expect(s.averageSleep(days: 7, until: d("2026-10-28"), calendar: cal) == 450)
+        #expect(s.sleep(on: d("2026-10-27"), calendar: cal)?.wake == "08:00")
+        #expect(HealthFormat.sleepText(450) == "7 小时 30 分")
+        #expect(HealthStore.durationMinutes("7.5h") == 450)
+        #expect(HealthStore.durationMinutes("450 min") == 450)
+    }
+}
