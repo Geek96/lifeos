@@ -18,7 +18,7 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   出行插件勾“要带”清单；物品插件快速记一件东西（新建只有名称和位置的卡）、往 `物品/想买.md` 加一行；远景插件勾项目步骤；分享的长图和 .ics 存到用户的“下载”）。
   事项正文（准备信息）由 agent 写。**永远不写 CourseOS 学期目录里的任何文件。**
 - vault 格式与 agent 规则：vault 里的 `.lifeos/RULES.md`；agent skill：[Geek96/life-manager](https://github.com/Geek96/life-manager)。
-- `templates/vault/` 是新 vault 的模板（RULES.md 第 1 版、入口文件、收件箱、lifeos.json 示例）。
+- `templates/vault/` 是新 vault 的模板（RULES.md 第 5 版、入口文件、收件箱、lifeos.json 示例）。
 
 ## 插件
 
