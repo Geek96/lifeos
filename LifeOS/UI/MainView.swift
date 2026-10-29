@@ -5,15 +5,17 @@ import LifeOSCore
 struct MainView: View {
     @Environment(AppModel.self) private var model
 
-    /// 中间内容区最窄多少：再窄健康页的图表、今天页的卡片就会把左栏挤扁
-    static let detailMinWidth: CGFloat = 560
-    /// 窗口最窄 = 左栏 220 + 中间 560 + 右栏 280 + 分隔线，三栏都开着也不挤
-    static let windowMinWidth: CGFloat = 1100
+    /// 中间内容区最窄多少：留够换行的余地（日 / 周 / 月那排、记一晚、数字卡片在这个宽度下会折行）
+    static let detailMinWidth: CGFloat = 480
+    /// 窗口最窄 = 默认大小：左栏 240 + 右栏 310 之后中间还有约 650。
+    /// 1100 时三栏的理想宽度加起来放不下，系统先压左栏（压到比它的最小宽度还窄）
+    static let windowMinWidth: CGFloat = 1240
 
     var body: some View {
         @Bindable var model = model
         NavigationSplitView {
             SidebarView()
+                .frame(minWidth: 220)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
         } detail: {
             ContentView()
@@ -55,6 +57,7 @@ struct MainView: View {
                     get: { model.showInspector && (model.page?.isHealth != true || model.selected != nil) },
                     set: { model.showInspector = $0 })) {
                     InspectorView()
+                        .frame(minWidth: 280)
                         .inspectorColumnWidth(min: 280, ideal: 310, max: 360)
                 }
         }
