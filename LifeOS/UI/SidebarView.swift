@@ -29,11 +29,16 @@ struct SidebarView: View {
                 Label("备忘", systemImage: "note.text").tag(AppModel.Page.notes)
             }
 
-            if model.config.plugins.health || model.config.plugins.things || model.config.plugins.finance || model.config.plugins.travel || model.config.plugins.vision {
+            if model.config.plugins.health {
+                Section("健康") {
+                    Label("饮食", systemImage: "fork.knife").tag(AppModel.Page.diet)
+                    Label("健身", systemImage: "figure.strengthtraining.traditional").tag(AppModel.Page.fitness)
+                    Label("睡眠", systemImage: "bed.double").tag(AppModel.Page.sleep)
+                }
+            }
+
+            if model.config.plugins.things || model.config.plugins.finance || model.config.plugins.travel || model.config.plugins.vision {
                 Section("插件") {
-                    if model.config.plugins.health {
-                        Label("健康", systemImage: "heart").tag(AppModel.Page.health)
-                    }
                     if model.config.plugins.things {
                         Label("物品", systemImage: "shippingbox").tag(AppModel.Page.things)
                     }

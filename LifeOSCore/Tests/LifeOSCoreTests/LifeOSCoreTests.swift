@@ -819,4 +819,34 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
         #expect(HealthStore.durationMinutes("7.5h") == 450)
         #expect(HealthStore.durationMinutes("450 min") == 450)
     }
+
+    @Test func recordsNightsInDateOrderAndReplacesSameDay() throws {
+        let vault = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let store = HealthStore(vault: vault)
+
+        // 新建文件
+        #expect(try store.recordSleep(wakeDay: d("2026-10-29"), bedtime: "0:10", wake: "0750", calendar: cal) == nil)
+        // 插到前面、只给起床、同一天再记一次就替换
+        try store.recordSleep(wakeDay: d("2026-10-27"), bedtime: nil, wake: "8:00", calendar: cal)
+        try store.recordSleep(wakeDay: d("2026-10-28"), bedtime: "23：40", wake: "07:10", calendar: cal)
+        let before = try store.recordSleep(wakeDay: d("2026-10-28"), bedtime: "23:30", wake: "07:10", calendar: cal)
+        #expect(before?.contains("23:40") == true)
+
+        let text = try String(contentsOf: store.sleepURL(d("2026-10-28"), calendar: cal), encoding: .utf8)
+        #expect(text.hasPrefix("---\ntype: health-sleep\nmonth: 2026-10\n---"))
+        let nights = HealthStore.parseSleep(text, calendar: cal)
+        #expect(nights.map { DateText.format($0.date, withTime: false, calendar: cal) } == ["2026-10-27", "2026-10-28", "2026-10-29"])
+        #expect(nights[0].bedtime == nil && nights[0].minutes == nil)
+        #expect(nights[1].bedtime == "23:30" && nights[1].minutes == 460)
+        #expect(nights[2].wake == "07:50" && nights[2].minutes == 460)
+        #expect(text.contains("| 2026-10-29 | 00:10 | 07:50 | 7:40 |"))
+
+        #expect(throws: HealthStore.SleepEntryError.empty) {
+            try store.recordSleep(wakeDay: d("2026-10-30"), bedtime: " ", wake: nil, calendar: cal)
+        }
+        #expect(throws: HealthStore.SleepEntryError.badTime("晚上")) {
+            try store.recordSleep(wakeDay: d("2026-10-30"), bedtime: "晚上", wake: "08:00", calendar: cal)
+        }
+    }
 }

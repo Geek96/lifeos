@@ -18,16 +18,17 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   出行插件勾“要带”清单；物品插件快速记一件东西（新建只有名称和位置的卡）、往 `物品/想买.md` 加一行；远景插件勾项目步骤；分享的长图和 .ics 存到用户的“下载”）。
   事项正文（准备信息）由 agent 写。**永远不写 CourseOS 学期目录里的任何文件。**
 - vault 格式与 agent 规则：vault 里的 `.lifeos/RULES.md`；agent skill：[Geek96/life-manager](https://github.com/Geek96/life-manager)。
-- `templates/vault/` 是新 vault 的模板（RULES.md 第 5 版、入口文件、收件箱、lifeos.json 示例）。
+- `templates/vault/` 是新 vault 的模板（RULES.md 第 7 版、入口文件、收件箱、lifeos.json 示例）。
 
 ## 插件
 
 `lifeos.json` 的 `plugins` 开关（设置 → 插件）。数据格式写在 vault 的 `.lifeos/RULES.md`“插件”一节。
 - **健康**（`plugins.health`）：`LifeOSCore/Health.swift` 解析 `健康/目标.md`、`健康/饮食/*.md`、`健康/复测/*.md`，
   训练是带 `plugin: health` 的普通事项。界面在 `LifeOS/UI/HealthViews.swift`：今天视图的健康卡片（圆环 + 今天练什么 + 记一顿）、
-  左栏“插件 → 健康”页（今天的饮食表、最近 7 天图、这周训练、复测）。
+  左栏“健康”一节分三页：饮食（`DietView`：今天 / 营养）、健身（`FitnessView`：这周数字 + 今天练什么，分页 计划与动作 / 训练记录）、睡眠（`SleepView`）；
+  三页共用 `HealthPageScaffold`，`AppModel.Page.isHealth` 判断是不是这三页。
   睡眠：`LifeOSCore/Sleep.swift` 解析 `健康/睡眠/YYYY-MM.md`（表 `| 日期 | 入睡 | 起床 | 时长 |`，日期是起床那天，没写时长就按入睡、起床算，跨午夜照算）；
-  界面在 `LifeOS/UI/SleepViews.swift`（健康页“睡眠”分页），概览里有“昨晚睡了”。
+  界面在 `LifeOS/UI/SleepViews.swift`：“记一晚”表单（`HealthStore.recordSleep`，同一天替换、按日期插入、可撤销）+ 统计和记录；今天卡片上有“昨晚睡了”。
 
 - **消费**（`plugins.finance`）：`LifeOS/UI/FinanceViews.swift` 的 `FinanceView` 分 概览 / 流水 / 账户 / 订阅；
   `LifeOSCore/Finance.swift` 解析 `财务/流水/*.md`、`账户.md`、`订阅.md`、`预算.md`（预留），订阅扣款日上日历（期限）。

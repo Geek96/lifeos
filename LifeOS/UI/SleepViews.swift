@@ -2,7 +2,62 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-// 健康页的“睡眠”分页：只显示睡了多久、几点睡几点起，不打分、不评价。
+// 睡眠页：记一晚 + 睡了多久、几点睡几点起。只陈述，不打分、不评价、不提醒。
+
+struct SleepView: View {
+    var body: some View {
+        HealthPageScaffold(title: "睡眠") {
+            SleepEntryForm()
+            SleepPage()
+        }
+    }
+}
+
+/// 记一晚：起床那天 + 入睡 + 起床（可以只填一个）。选到已经记过的那天就带出原来的时间，再记一次是改。
+struct SleepEntryForm: View {
+    @Environment(AppModel.self) private var model
+    @State private var day = Date()
+    @State private var bedtime = ""
+    @State private var wake = ""
+
+    var body: some View {
+        let existing = model.health.sleep(on: day, calendar: model.calendar)
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            SectionTitle(text: "记一晚", systemImage: "bed.double")
+            HStack(spacing: Theme.Space.m) {
+                DatePicker("起床那天", selection: $day, in: ...model.clock, displayedComponents: .date)
+                    .fixedSize()
+                TextField("入睡，比如 23:40", text: $bedtime)
+                    .textFieldStyle(.roundedBorder).frame(width: 130)
+                    .onSubmit(save)
+                TextField("起床，比如 07:30", text: $wake)
+                    .textFieldStyle(.roundedBorder).frame(width: 130)
+                    .onSubmit(save)
+                Button(existing == nil ? "记下" : "更新", action: save)
+                    .disabled(bedtime.trimmingCharacters(in: .whitespaces).isEmpty
+                              && wake.trimmingCharacters(in: .whitespaces).isEmpty)
+                Spacer(minLength: 0)
+            }
+            Text("日期写起床那天；只记得一个就只填一个。")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(Theme.Space.l)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
+        .onAppear(perform: fill)
+        .onChange(of: day) { fill() }
+    }
+
+    /// 这天已经记过：带出原来的时间
+    private func fill() {
+        let n = model.health.sleep(on: day, calendar: model.calendar)
+        bedtime = n?.bedtime ?? ""
+        wake = n?.wake ?? ""
+    }
+
+    private func save() {
+        if model.recordSleep(wakeDay: day, bedtime: bedtime, wake: wake) { fill() }
+    }
+}
 
 struct SleepPage: View {
     @Environment(AppModel.self) private var model
@@ -13,7 +68,7 @@ struct SleepPage: View {
         let nights = model.health.sleep
         VStack(alignment: .leading, spacing: Theme.Space.xl) {
             if nights.isEmpty {
-                Text("还没有睡眠记录。跟 agent 说一句（比如“昨晚 1 点睡，今天 9 点起”），它会记到 健康/睡眠/。")
+                Text("还没有睡眠记录。在上面记一晚，或者跟 agent 说一句（比如“昨晚 1 点睡，今天 9 点起”），都会记到 健康/睡眠/。")
                     .foregroundStyle(.secondary)
             } else {
                 HStack(spacing: Theme.Space.m) {

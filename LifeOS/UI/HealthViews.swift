@@ -2,7 +2,7 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-// 健康插件的界面：今天卡片、健康页、圆环、记一顿。
+// 健康插件的界面：今天卡片、饮食页和健身页的外框、圆环、记一顿。
 // 只显示事实（吃了多少、目标多少、还差多少），不打分、不评价、不催。
 
 /// 三个同心圆环：外 热量 / 中 蛋白质 / 内 碳水（像 Apple 健身的活动圆环）
@@ -126,7 +126,7 @@ struct HealthTodayCard: View {
             HStack {
                 SectionTitle(text: "健康", systemImage: "heart")
                 Spacer()
-                Button("详细") { model.page = .health }
+                Button("详细") { model.page = .diet }
                     .buttonStyle(.link)
             }
             HStack(alignment: .top, spacing: Theme.Space.xl) {
@@ -144,6 +144,11 @@ struct HealthTodayCard: View {
                         TrainingSummary(occurrence: t.occurrence, item: t.item, maxRows: 5)
                     }
                 }
+            }
+            if let night = model.health.sleep(on: day, calendar: model.calendar), let minutes = night.minutes {
+                Label("昨晚睡了 \(HealthFormat.sleepText(minutes))（\(night.bedtime ?? "?")–\(night.wake ?? "?")）", systemImage: "bed.double")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .onTapGesture { model.page = .sleep }
             }
             if isToday {
                 MealLogField()
@@ -184,61 +189,54 @@ struct TrainingSummary: View {
     }
 }
 
-/// 健康页：概览 / 营养 / 健身（肌肉图、一周计划、身体与复测、动作）/ 训练记录
-struct HealthView: View {
-    @Environment(AppModel.self) private var model
-    @AppStorage("healthTab") private var tab = HealthTab.overview.rawValue
-
-    enum HealthTab: String, CaseIterable, Identifiable {
-        case overview, nutrition, fitness, log, sleep
-        var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .overview: "概览"; case .nutrition: "营养"; case .fitness: "健身"; case .log: "训练记录"; case .sleep: "睡眠"
-            }
-        }
-    }
+/// 健康三页（饮食 / 健身 / 睡眠）共用的外框：大标题 + 可选分页条 + 内容
+struct HealthPageScaffold<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
 
     var body: some View {
-        // 以前的“身体”“测试”分页已经并进“健身”
-        let current = HealthTab(rawValue: tab) ?? (["body", "tests"].contains(tab) ? .fitness : .overview)
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Space.xl) {
-                Text("健康").font(.largeTitle.bold())
-                TabStrip(tabs: HealthTab.allCases.map { ($0.rawValue, $0.label) }, selection: $tab)
-                switch current {
-                case .overview: HealthOverview()
-                case .nutrition: HealthNutritionPage()
-                case .fitness: FitnessPage()
-                case .log: HealthLogPage()
-                case .sleep: SleepPage()
-                }
+                Text(title).font(.largeTitle.bold())
+                content
             }
             .padding(Theme.Space.xl)
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
-        // 换到别的分页才收起动作详情（打开动作时会把分页写成 fitness，那次不算）
-        .onChange(of: tab) { if tab != HealthTab.fitness.rawValue { model.openExerciseID = nil } }
-        .onAppear { if ["body", "tests"].contains(tab) { tab = HealthTab.fitness.rawValue } }
-        .onChange(of: model.page) { if model.page != .health { model.openExerciseID = nil } }
     }
 }
 
-/// 概览：一眼看明白——圆环、今天练什么、这周进度、记一顿
-struct HealthOverview: View {
-    @Environment(AppModel.self) private var model
-    @State private var showMeals = false
-    @State private var showWeek = false
+/// 饮食页：今天（圆环、记一顿、吃了什么、最近 7 天）/ 营养（微量营养、近 7 天平均）
+struct DietView: View {
+    @AppStorage("dietTab") private var tab = DietTab.today.rawValue
+
+    enum DietTab: String, CaseIterable, Identifiable {
+        case today, nutrition
+        var id: String { rawValue }
+        var label: String {
+            switch self { case .today: "今天"; case .nutrition: "营养" }
+        }
+    }
 
     var body: some View {
-        let cal = model.calendar
-        let today = model.clock
-        let diet = model.health.day(today, calendar: cal)
-        let training = model.training(on: today)
-        let week = WeekStats.compute(model.health.sessions, calendar: cal)
-            .first { cal.isDate($0.weekStart, equalTo: today, toGranularity: .weekOfYear) }
-        VStack(alignment: .leading, spacing: Theme.Space.l) {
+        HealthPageScaffold(title: "饮食") {
+            TabStrip(tabs: DietTab.allCases.map { ($0.rawValue, $0.label) }, selection: $tab)
+            switch DietTab(rawValue: tab) ?? .today {
+            case .today: DietTodayPage()
+            case .nutrition: HealthNutritionPage()
+            }
+        }
+    }
+}
+
+/// 饮食 · 今天：圆环 + 记一顿 + 今天吃了什么 + 最近 7 天
+struct DietTodayPage: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let diet = model.health.day(model.clock, calendar: model.calendar)
+        VStack(alignment: .leading, spacing: Theme.Space.xl) {
             HStack(alignment: .center, spacing: Theme.Space.xl) {
                 if let target = model.health.targets {
                     NutritionRings(total: diet.total, target: target, size: 150)
@@ -249,18 +247,73 @@ struct HealthOverview: View {
                 Spacer(minLength: 0)
             }
 
-            if let target = model.health.targets, !target.micros.isEmpty {
-                MicroGrid(total: diet.total, target: target, compact: true)
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                MealLogField()
+                PendingMealsHint(count: diet.pendingCount)
             }
 
+            if !diet.meals.isEmpty {
+                VStack(alignment: .leading, spacing: Theme.Space.s) {
+                    SectionTitle(text: "今天吃了什么（\(diet.meals.count) 条）", systemImage: "fork.knife")
+                    MealTable(meals: diet.meals)
+                }
+            }
+
+            WeekNutritionChart()
+        }
+    }
+}
+
+/// 健身页：这周数字 + 今天练什么，下面分页：计划与动作（肌肉图、一周计划、身体与复测、动作）/ 训练记录
+struct FitnessView: View {
+    @Environment(AppModel.self) private var model
+    @AppStorage("fitnessTab") private var tab = FitnessTab.plan.rawValue
+
+    enum FitnessTab: String, CaseIterable, Identifiable {
+        case plan, log
+        var id: String { rawValue }
+        var label: String {
+            switch self { case .plan: "计划与动作"; case .log: "训练记录" }
+        }
+    }
+
+    var body: some View {
+        let current = FitnessTab(rawValue: tab) ?? .plan
+        HealthPageScaffold(title: "健身") {
+            // 打开了某个动作：整页给动作详情
+            if current == .plan, model.openExerciseID != nil {
+                FitnessPage()
+            } else {
+                FitnessThisWeek()
+                TabStrip(tabs: FitnessTab.allCases.map { ($0.rawValue, $0.label) }, selection: $tab)
+                switch current {
+                case .plan: FitnessPage()
+                case .log: HealthLogPage()
+                }
+            }
+        }
+        // 换到别的分页 / 别的页才收起动作详情（打开动作时会把分页写成 plan，那次不算）
+        .onChange(of: tab) { if tab != FitnessTab.plan.rawValue { model.openExerciseID = nil } }
+        .onChange(of: model.page) { if model.page != .fitness { model.openExerciseID = nil } }
+    }
+}
+
+/// 健身页顶上：这周的数字 + 今天练什么
+struct FitnessThisWeek: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let cal = model.calendar
+        let today = model.clock
+        let training = model.training(on: today)
+        let week = WeekStats.compute(model.health.sessions, calendar: cal)
+            .first { cal.isDate($0.weekStart, equalTo: today, toGranularity: .weekOfYear) }
+        VStack(alignment: .leading, spacing: Theme.Space.l) {
             HStack(spacing: Theme.Space.m) {
-                StatTile(title: "这周跑了", value: week.map { String(format: "%.1f km", $0.runKm) } ?? "0 km")
                 StatTile(title: "这周训练", value: "\(week?.sessions ?? 0) 次")
+                StatTile(title: "这周跑了", value: week.map { String(format: "%.1f km", $0.runKm) } ?? "0 km")
                 StatTile(title: "平均配速", value: week?.pace.map { HealthFormat.minutesText($0) + " /km" } ?? "—")
-                StatTile(title: "昨晚睡了", value: model.health.sleep(on: today, calendar: cal)?.minutes
-                    .map(HealthFormat.sleepText) ?? "—")
             }
-
             VStack(alignment: .leading, spacing: Theme.Space.s) {
                 SectionTitle(text: "今天练什么", systemImage: "figure.strengthtraining.traditional")
                 if training.isEmpty {
@@ -269,19 +322,6 @@ struct HealthOverview: View {
                     ForEach(training, id: \.occurrence.id) { t in
                         TrainingSummary(occurrence: t.occurrence, item: t.item, maxRows: 8)
                     }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: Theme.Space.s) {
-                MealLogField()
-                PendingMealsHint(count: diet.pendingCount)
-                if !diet.meals.isEmpty {
-                    DisclosureGroup("今天吃了什么（\(diet.meals.count) 条）", isExpanded: $showMeals) {
-                        MealTable(meals: diet.meals).padding(.top, 6)
-                    }
-                }
-                DisclosureGroup("最近 7 天饮食", isExpanded: $showWeek) {
-                    WeekNutritionChart().padding(.top, 6)
                 }
             }
         }

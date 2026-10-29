@@ -3,11 +3,16 @@ import AppKit
 import LifeOSCore
 
 /// 编排：载入 vault + CourseOS 快照、生成日历上的出现、处理用户操作。
-/// 只写 LifeOS vault（事项时间/状态字段、新建事项、收件箱、健康插件的饮食表追加一行）和 lifeos.json；CourseOS 只读。
+/// 只写 LifeOS vault（事项时间/状态字段、新建事项、收件箱、健康插件的饮食表追加一行和睡眠表记一晚）和 lifeos.json；CourseOS 只读。
 @Observable
 @MainActor
 final class AppModel {
-    enum Page: Hashable { case today, week, month, inbox, notes, health, things, finance, travel, vision }
+    enum Page: Hashable {
+        case today, week, month, inbox, notes, diet, fitness, sleep, things, finance, travel, vision
+
+        /// 健康插件的三页：饮食 / 健身 / 睡眠
+        var isHealth: Bool { self == .diet || self == .fitness || self == .sleep }
+    }
 
     /// 新建 / 编辑事项的 sheet
     struct EditorRequest: Identifiable {
@@ -106,7 +111,7 @@ final class AppModel {
         notes = store.notes()
         journal = store.recentJournal()
         health = config.plugins.health ? HealthStore(vault: root).load(calendar: calendar) : .empty
-        if !config.plugins.health && page == .health { page = .today }
+        if !config.plugins.health && page?.isHealth == true { page = .today }
         things = config.plugins.things ? ThingStore(vault: root).load(calendar: calendar) : []
         thingWishes = config.plugins.things ? ThingStore(vault: root).loadWishlist(calendar: calendar) : []
         finance = config.plugins.finance ? FinanceStore(vault: root).load(calendar: calendar) : .empty
@@ -390,11 +395,33 @@ final class AppModel {
             .sorted { $0.0.start < $1.0.start }
     }
 
-    /// 打开一个动作的详情（健康页 → 健身分页）
+    /// 打开一个动作的详情（健身页 → 计划与动作分页）
     func openExercise(_ ex: Exercise) {
-        UserDefaults.standard.set("fitness", forKey: "healthTab")
+        UserDefaults.standard.set("plan", forKey: "fitnessTab")
         openExerciseID = ex.id
-        page = .health
+        page = .fitness
+    }
+
+    /// 记一晚睡眠（起床那天、几点睡、几点起，可以只填一个）；同一天再记就替换。可撤销
+    @discardableResult
+    func recordSleep(wakeDay: Date, bedtime: String?, wake: String?) -> Bool {
+        guard let root = vaultRoot else { return false }
+        let store = HealthStore(vault: root)
+        let url = store.sleepURL(wakeDay, calendar: calendar)
+        let replacing = health.sleep(on: wakeDay, calendar: calendar) != nil
+        do {
+            let before = try store.recordSleep(wakeDay: wakeDay, bedtime: bedtime, wake: wake, calendar: calendar)
+            reload()
+            feedback.show(replacing ? "已更新这一晚" : "已记下", undo: { [weak self] in
+                if let before { try? before.write(to: url, atomically: true, encoding: .utf8) }
+                else { try? FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+                self?.reload()
+            })
+            return true
+        } catch {
+            feedback.show("没能记下：\(error.localizedDescription)")
+            return false
+        }
     }
 
     /// 在今天的饮食表里记一顿（还没估算，等 agent 补数字）；可撤销

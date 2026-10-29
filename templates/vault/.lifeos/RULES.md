@@ -1,5 +1,5 @@
 ---
-rules-version: 6
+rules-version: 7
 ---
 # LifeOS 规则（在本 vault 工作的所有 agent 必读）
 
@@ -81,9 +81,10 @@ agent 不提醒用户记饮食，不评价吃得好不好，不因为没记而�
 - **睡眠**：`健康/睡眠/YYYY-MM.md`，一个月一个文件。frontmatter `type: health-sleep`、`month`（如 `2026-10`）；正文一张固定列的表
   `| 日期 | 入睡 | 起床 | 时长 |`，一晚一行。`日期` 写**起床那天**；`入睡`、`起床` 写 24 小时制 `HH:MM`；`时长` 写 `H:MM`（agent 按入睡、起床算好再写，跨午夜照算）。
   用户只说了起床或只说了入睡，另一个空着、时长也空着，不要猜。和饮食一样**不打卡**：只在用户主动说时记，不提醒、不评价睡得好不好。
-  （App 健康页的“睡眠”分页读这个文件。）
+  App 左栏“健康 → 睡眠”页读这个文件；那页的“记一晚”也会写它（同一天替换那一行，没有就按日期插进去，格式和上面一样），
+  所以 agent 写之前先看那天是不是已经有一行了，有就改那一行，不要重复加。
 
-- **健身**（App 健康页的“健身”分页）：
+- **健身**（App 左栏“健康 → 健身”页）：
   - `健康/训练计划.md`：`type: training-plan`，`## 学期一周` 一张表 `| 星期 | 时间 | 内容 | 动作 |`（动作用 `、` 分隔，名字和 `健康/动作/` 里文件的 `name` 字段一致，App 按 `name` 找，不看文件名），下面的 `- ` 列表是说明。计划改了同步改这里和 `事项/` 里的训练事项。
   - `健康/动作/{动作名}.md`：每个动作一个文件。frontmatter：`type: exercise`、`name`、`name_en`、`kind`（strength 负重 / bodyweight 自重 / timed 计时 / cardio 有氧）、
     `primary`、`secondary`（练到的肌肉，用这些键：neck、trapezius、front-deltoids、back-deltoids、chest、upper-back、biceps、triceps、forearm、abs、obliques、

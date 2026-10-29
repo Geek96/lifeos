@@ -2,7 +2,7 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-// 健康页的“健身”分页：肌肉分布图 → 学期一周计划 → 身体数据与复测 → 动作（点进去看每周最好成绩和下一次怎么练）。
+// 健身页的“计划与动作”分页：肌肉分布图 → 学期一周计划 → 身体数据与复测 → 动作（点进去看每周最好成绩和下一次怎么练）。
 
 struct FitnessPage: View {
     @Environment(AppModel.self) private var model
