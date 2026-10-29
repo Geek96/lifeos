@@ -18,7 +18,7 @@ struct LifeOSApp: App {
                 .preferredColorScheme(colorScheme)
                 .task { model.boot() }
         }
-        .defaultSize(width: 1240, height: 800)
+        .defaultSize(width: 1360, height: 840)
         // 窗口不能拖得比 MainView 的最小宽高还小（否则三栏会互相挤压）
         .windowResizability(.contentMinSize)
         .commands {
