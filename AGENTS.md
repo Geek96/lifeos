@@ -18,7 +18,7 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   出行插件勾“要带”清单；物品插件快速记一件东西（新建只有名称和位置的卡）、往 `物品/想买.md` 加一行；远景插件勾项目步骤；分享的长图和 .ics 存到用户的“下载”）。
   事项正文（准备信息）由 agent 写。**永远不写 CourseOS 学期目录里的任何文件。**
 - vault 格式与 agent 规则：vault 里的 `.lifeos/RULES.md`；agent skill：[Geek96/life-manager](https://github.com/Geek96/life-manager)。
-- `templates/vault/` 是新 vault 的模板（RULES.md 第 9 版、入口文件、收件箱、lifeos.json 示例）。
+- `templates/vault/` 是新 vault 的模板（RULES.md 第 10 版、入口文件、收件箱、lifeos.json 示例）。
 
 ## 插件
 
@@ -29,12 +29,14 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   营养（`NutritionViews.swift`：日 = 圆环、记一顿 / 补记、微量营养；周月 = `nutritionSummary` 平均、按天的图、热力格）、
   健身与锻炼（`FitnessViews.swift` 的 `FitnessView`：分页 记录（日 / 周 / 月，`fitnessSummary`，计划和实际对照，“记一笔”放进收件箱）/ 长期趋势 / 计划与动作）、
   休息与放松（`SleepViews.swift` 的 `RestView`：记一晚、`sleepSummary` 平均几点睡几点起、睡眠时段图）；三页共用 `HealthPageScaffold`，`AppModel.Page.isHealth` 判断是不是这三页。
+  营养页最下面是体重（`WeightSection`；`LifeOSCore/Weight.swift` 读写 `健康/体重.md`，目标范围来自 `目标.md` 的 `weight_gain_min/max`）；
+  休息与放松的周 / 月有 `SleepContextSection`：训练（训练记录）和考试（`AppModel.examDays`，不受图层开关影响）标在时间轴上，`SleepComparison` 分开平均。
   新加 UI 文件后要重新跑 `xcodegen generate`（`.xcodeproj` 不进 git）。
   每天的目标按 `HealthSnapshot.targets(on:)` 取（`健康/目标历史/` + `目标.md` 的 `since`）；平均只用 `completeDays`（饮食文件 `complete`，没写时过去算记全、今天不算）。
   睡眠：`LifeOSCore/Sleep.swift` 解析 `健康/睡眠/YYYY-MM.md`（表 `| 日期 | 入睡 | 起床 | 时长 |`，日期是起床那天，没写时长就按入睡、起床算，跨午夜照算）；
   界面在 `LifeOS/UI/SleepViews.swift`（`RestView`）：“记一晚”表单（`HealthStore.recordSleep`，同一天替换、按日期插入、可撤销）+ 统计和记录；今天卡片上有“昨晚睡了”。
 
-- **消费**（`plugins.finance`）：`LifeOS/UI/FinanceViews.swift` 的 `FinanceView` 分 概览 / 流水 / 账户 / 订阅；
+- **消费**（`plugins.finance`）：`LifeOS/UI/FinanceViews.swift` 的 `FinanceView` 分 概览（类别圆环 `CategoryDonut`、本月累计对照上月 `CumulativeSpendingChart`、预算进度 `BudgetProgress`）/ 流水 / 账户 / 订阅；
   `LifeOSCore/Finance.swift` 解析 `财务/流水/*.md`、`账户.md`、`订阅.md`、`预算.md`（预留），订阅扣款日上日历（期限）。
 - **物品**（`plugins.things`）：`ThingsView` / `ThingsPanel`：`LifeOSCore/Things.swift` 解析 `物品/*.md`（`type: thing`），算下次补货、保养（`Interval`），
   并生成日历上的出现（退货、保修 = 期限；补货、保养 = 提前 7 天的时间窗）。界面在 `LifeOS/UI/ThingsViews.swift`：

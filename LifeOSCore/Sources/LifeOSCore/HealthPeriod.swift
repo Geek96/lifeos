@@ -171,3 +171,36 @@ extension HealthSnapshot {
         return (m < 18 * 60 ? m + 1440 : m) / 60
     }
 }
+
+// MARK: - 睡眠和训练、考试放在一起看
+
+/// 把睡眠按“前一天练没练”“第二天有没有考试”分开平均。只陈述，不下结论。
+public struct SleepComparison: Equatable, Sendable {
+    /// 练了那天晚上（起床那天的前一天有训练）
+    public var afterTraining: Double?
+    public var afterTrainingCount: Int
+    /// 没练的那天晚上
+    public var afterRest: Double?
+    public var afterRestCount: Int
+    /// 考试前一晚（起床那天有考试）
+    public var beforeExam: Double?
+    public var beforeExamCount: Int
+
+    /// trainingDays / examDays：那天的 0 点
+    public static func compute(_ nights: [SleepNight], trainingDays: Set<Date>, examDays: Set<Date>,
+                               calendar: Calendar) -> SleepComparison {
+        func avg(_ ns: [SleepNight]) -> Double? {
+            let m = ns.compactMap(\.minutes)
+            return m.isEmpty ? nil : m.reduce(0, +) / Double(m.count)
+        }
+        let timed = nights.filter { $0.minutes != nil }
+        let trained = timed.filter { n in
+            calendar.date(byAdding: .day, value: -1, to: n.date).map { trainingDays.contains(calendar.startOfDay(for: $0)) } ?? false
+        }
+        let rested = timed.filter { n in !trained.contains(n) }
+        let exam = timed.filter { examDays.contains(calendar.startOfDay(for: $0.date)) }
+        return SleepComparison(afterTraining: avg(trained), afterTrainingCount: trained.count,
+                               afterRest: avg(rested), afterRestCount: rested.count,
+                               beforeExam: avg(exam), beforeExamCount: exam.count)
+    }
+}

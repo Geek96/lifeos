@@ -1,5 +1,5 @@
 ---
-rules-version: 9
+rules-version: 10
 ---
 # LifeOS 规则（在本 vault 工作的所有 agent 必读）
 
@@ -60,7 +60,10 @@ created: 2026-10-15
 ### 健康（`plugins.health`）
 数据都在 `健康/` 下，agent 写、App 读（App 只会在当天饮食表末尾追加一行“还没估算”的记录，和在睡眠表里记一晚）。
 App 左栏把健康拆成三页：**营养**、**健身与锻炼**、**休息与放松**，每页都能按 日 / 周 / 月 看。
-- `健康/目标.md`：frontmatter `type: health-targets`、`since`（这份目标从哪天起生效）、`kcal`、`protein`、`carbs`、`fat`（只写数字），正文写怎么算的。
+- `健康/目标.md`：frontmatter `type: health-targets`、`since`（这份目标从哪天起生效）、`kcal`、`protein`、`carbs`、`fat`（只写数字），
+  可选 `weight_gain_min` / `weight_gain_max`（体重每月变化多少 kg，减重写负数；App 从 since 那天之前最近一次称重起，按它画体重趋势图上的目标范围），正文写怎么算的。
+- `健康/体重.md`：frontmatter `type: health-weight`；一张表 `| 日期 | 体重（lb） | 备注 |`，一次一行，体重只写数字（lb，一位小数；用户说 kg 就换算成 lb，备注里可以写原话）。
+  每周挑一天早上空腹称。App“营养”页的“记体重”也写这里（同一天替换那一行），agent 写之前先看那天有没有。和饮食一样不打卡、不提醒、不评价。
 - `健康/目标历史/{since}.md`：以前的目标，格式和 `目标.md` 一样（多一个 `until`）。**改目标时先把旧的一份原样存进来**（文件名用旧的 `since`），
   再改 `目标.md` 的数字和 `since`。App 按 since 给每一天找当时的目标：以前的日子的圆环、7 天图、平均都按当时的目标算。
 - `健康/饮食/YYYY-MM-DD.md`：frontmatter `type: health-diet`、`date`，可选 `complete`；正文一张固定列的表

@@ -138,6 +138,10 @@ public struct HealthSnapshot: Equatable, Sendable {
     public var plan: WeekPlan = .empty
     /// 睡眠（`健康/睡眠/`），旧的在前
     public var sleep: [SleepNight] = []
+    /// 体重（`健康/体重.md`），旧的在前
+    public var weights: [WeightEntry] = []
+    /// 体重目标（`健康/目标.md` 的 weight_gain_min / max）
+    public var weightPlan: WeightPlan? = nil
 
     public static let empty = HealthSnapshot(targets: nil, days: [], tests: [])
 
@@ -182,7 +186,8 @@ public struct HealthStore: Sendable {
         HealthSnapshot(targets: loadTargets(), days: loadDays(calendar: calendar),
                        targetHistory: loadTargetHistory(calendar: calendar), tests: loadTests(calendar: calendar),
                        body: loadBody(calendar: calendar), sessions: loadSessions(calendar: calendar),
-                       exercises: loadExercises(calendar: calendar), plan: loadWeekPlan(), sleep: loadSleep(calendar: calendar))
+                       exercises: loadExercises(calendar: calendar), plan: loadWeekPlan(), sleep: loadSleep(calendar: calendar),
+                       weights: loadWeights(calendar: calendar), weightPlan: loadWeightPlan(calendar: calendar))
     }
 
     // MARK: - 目标

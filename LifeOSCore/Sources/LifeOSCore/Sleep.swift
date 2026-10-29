@@ -147,13 +147,18 @@ extension HealthStore {
 
     static let sleepHeader = "| 日期 | 入睡 | 起床 | 时长 |\n|---|---|---|---|"
 
-    /// 按日期（`yyyy-MM-dd` 文本可以直接比大小）替换或插入一行；找不到睡眠表就在末尾新建一张
     static func upsertSleepRow(_ row: String, day: String, into text: String) -> String {
+        upsertDatedRow(row, day: day, headerMarker: "入睡", header: sleepHeader, into: text)
+    }
+
+    /// 按日期（`yyyy-MM-dd` 文本可以直接比大小）替换或插入一行：表头含 `headerMarker` 的那张表，
+    /// 第一列是日期；找不到表就在末尾按 `header` 新建一张。睡眠、体重共用
+    static func upsertDatedRow(_ row: String, day: String, headerMarker: String, header newHeader: String, into text: String) -> String {
         var lines = text.components(separatedBy: "\n")
-        guard let header = lines.firstIndex(where: { $0.hasPrefix("|") && $0.contains("入睡") }) else {
+        guard let header = lines.firstIndex(where: { $0.hasPrefix("|") && $0.contains(headerMarker) }) else {
             var out = text
             if !out.hasSuffix("\n") { out += "\n" }
-            return out + "\n\(sleepHeader)\n\(row)\n"
+            return out + "\n\(newHeader)\n\(row)\n"
         }
         var i = header + 1
         if i < lines.count, lines[i].contains("---") { i += 1 }

@@ -2,7 +2,8 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-// 休息与放松页：日（记一晚、那一晚睡了多久）/ 周、月（平均时长、平均几点睡几点起、每晚的睡眠时段、月历热力格）。
+// 休息与放松页：日（记一晚、那一晚睡了多久）/ 周、月（平均时长、平均几点睡几点起、每晚的睡眠时段、月历热力格、
+// 和训练、考试放在一起看）。
 // 只陈述，不打分、不评价、不提醒。
 
 struct RestView: View {
@@ -182,6 +183,8 @@ struct RestRangePage: View {
                 .init(day: d, value: (model.health.sleep(on: d, calendar: cal)?.minutes ?? 0) / 60)
             }, color: Theme.indigo, axisLabel: { "\(Int($0)) h" })
 
+            SleepContextSection(period: period, nights: summary.nights)
+
             if !summary.nights.isEmpty {
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
                     SectionTitle(text: "记录", systemImage: "list.bullet")
@@ -219,5 +222,66 @@ struct RestRangePage: View {
         guard let n = model.health.sleep(on: d, calendar: model.calendar) else { return HeatCell() }
         guard let m = n.minutes else { return HeatCell(fraction: nil, text: n.wake ?? n.bedtime) }
         return HeatCell(fraction: m / 540, text: String(format: "%.1fh", m / 60))
+    }
+}
+
+/// 睡眠和训练、考试放在一起看：哪天练了、哪天考试标在同一条时间轴上，再把睡眠按“练没练”“考试前一晚”分开平均。
+/// 只陈述，不下结论、不打分。
+struct SleepContextSection: View {
+    @Environment(AppModel.self) private var model
+    let period: HealthPeriod
+    let nights: [SleepNight]
+
+    private struct Mark: Identifiable {
+        var id: String { kind + "\(day.timeIntervalSince1970)" }
+        var day: Date
+        var kind: String
+    }
+
+    var body: some View {
+        let cal = model.calendar
+        let iv = period.interval(calendar: cal)
+        // 多看前一天：这段时间第一晚的“前一天练没练”也要知道
+        let wide = DateInterval(start: cal.date(byAdding: .day, value: -1, to: iv.start) ?? iv.start, end: iv.end)
+        let training = Set(model.health.sessions.filter { wide.containsHalfOpen($0.date) }.map { cal.startOfDay(for: $0.date) })
+        let exams = model.examDays(in: iv)
+        let cmp = SleepComparison.compute(nights, trainingDays: training, examDays: exams, calendar: cal)
+        let marks = training.filter { iv.containsHalfOpen($0) }.map { Mark(day: $0, kind: "训练") }
+            + exams.map { Mark(day: $0, kind: "考试") }
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            SectionTitle(text: "和训练、考试放在一起看", systemImage: "square.stack.3d.up")
+            if marks.isEmpty {
+                Text("这段时间没有训练记录，也没有考试。").foregroundStyle(.secondary)
+            } else {
+                Chart(marks) { m in
+                    PointMark(x: .value("日期", m.day, unit: .day), y: .value("类型", m.kind))
+                        .symbol(m.kind == "考试" ? .diamond : .circle)
+                        .symbolSize(90)
+                        .foregroundStyle(m.kind == "考试" ? Theme.red : Theme.green)
+                }
+                .chartXScale(domain: iv.start...iv.end)
+                .chartYScale(domain: ["训练", "考试"])
+                .chartXAxis {
+                    if period.scale == .month {
+                        AxisMarks(values: .stride(by: .day, count: 5)) { _ in AxisValueLabel(format: .dateTime.day()) }
+                    } else {
+                        AxisMarks(values: .stride(by: .day)) { _ in AxisValueLabel(format: .dateTime.weekday(.narrow)) }
+                    }
+                }
+                .frame(height: 70)
+            }
+            StatRow {
+                StatTile(title: "练了那天晚上", value: text(cmp.afterTraining, cmp.afterTrainingCount))
+                StatTile(title: "没练的晚上", value: text(cmp.afterRest, cmp.afterRestCount))
+                StatTile(title: "考试前一晚", value: text(cmp.beforeExam, cmp.beforeExamCount))
+            }
+            Text("睡眠记在起床那天：练了那天晚上的睡眠，算在第二天早上那一晚；考试前一晚 = 考试那天早上起床的那一晚。训练按训练记录算，考试来自 CourseOS。")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func text(_ minutes: Double?, _ n: Int) -> String {
+        guard let minutes else { return "—" }
+        return HealthFormat.sleepText(minutes) + "（\(n) 晚）"
     }
 }

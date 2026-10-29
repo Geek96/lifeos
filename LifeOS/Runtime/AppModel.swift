@@ -3,7 +3,7 @@ import AppKit
 import LifeOSCore
 
 /// 编排：载入 vault + CourseOS 快照、生成日历上的出现、处理用户操作。
-/// 只写 LifeOS vault（事项时间/状态字段、新建事项、收件箱、健康插件的饮食表追加一行和睡眠表记一晚）和 lifeos.json；CourseOS 只读。
+/// 只写 LifeOS vault（事项时间/状态字段、新建事项、收件箱、健康插件的饮食表追加一行、睡眠表记一晚、体重表记一次）和 lifeos.json；CourseOS 只读。
 @Observable
 @MainActor
 final class AppModel {
@@ -220,6 +220,14 @@ final class AppModel {
         return (life + course + owned + charges + travel + plans).sorted { ($0.start, $0.title) < ($1.start, $1.title) }
     }
 
+    /// 某段时间里有考试的日子（0 点）：不受“课程截止与考试”图层开关影响
+    func examDays(in range: DateInterval) -> Set<Date> {
+        var c = config
+        c.layers = .init(classes: false, courseDeadlines: true, courseOptional: false)
+        return Set(CourseOSBridge.occurrences(snapshot, in: range, config: c, calendar: calendar)
+            .filter { $0.style == .courseExam }.map { calendar.startOfDay(for: $0.start) })
+    }
+
     /// 负荷：多看 5 天，让截止前摊下来的课业算进来（课业负荷不受图层开关影响）
     func loads(for range: DateInterval) -> [Date: DayLoad] {
         let wide = DateInterval(start: range.start, end: range.end.addingTimeInterval(5 * 86400))
@@ -400,6 +408,28 @@ final class AppModel {
         UserDefaults.standard.set("plan", forKey: "fitnessTab")
         openExerciseID = ex.id
         page = .fitness
+    }
+
+    /// 记一次体重（“145”“65.8 kg”）；同一天再记就替换。可撤销
+    @discardableResult
+    func recordWeight(day: Date, value: String) -> Bool {
+        guard let root = vaultRoot else { return false }
+        let store = HealthStore(vault: root)
+        let url = store.weightURL
+        let replacing = health.weights.contains { calendar.isDate($0.date, inSameDayAs: day) }
+        do {
+            let before = try store.recordWeight(day: day, value: value, calendar: calendar)
+            reload()
+            feedback.show(replacing ? "已更新这天的体重" : "已记下体重", undo: { [weak self] in
+                if let before { try? before.write(to: url, atomically: true, encoding: .utf8) }
+                else { try? FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+                self?.reload()
+            })
+            return true
+        } catch {
+            feedback.show("没能记下：\(error.localizedDescription)")
+            return false
+        }
     }
 
     /// 记一晚睡眠（起床那天、几点睡、几点起，可以只填一个）；同一天再记就替换。可撤销

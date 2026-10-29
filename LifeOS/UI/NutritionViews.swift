@@ -2,7 +2,8 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-// 营养页：日（圆环、记一顿 / 补记、吃了什么、微量营养）/ 周、月（记了几天、平均对照当时的目标、按天的图、月历热力格）。
+// 营养页：日（圆环、记一顿 / 补记、吃了什么、微量营养）/ 周、月（记了几天、平均对照当时的目标、按天的图、月历热力格），
+// 下面是体重（记体重、趋势、对照增肌目标的范围）。
 // 只陈述数字，不打分、不评价。
 
 struct NutritionView: View {
@@ -19,6 +20,9 @@ struct NutritionView: View {
             case .week, .month:
                 NutritionRangePage(period: period) { d in anchor = d; scale = HealthPeriod.Scale.day.rawValue }
             }
+            Divider()
+            // 在“日”里记到正在看的那天，周 / 月里默认今天
+            WeightSection(day: period.scale == .day ? anchor : model.clock)
         }
     }
 }
@@ -167,5 +171,110 @@ struct NutritionRangePage: View {
             if !m.isLimit, v < 0.7 * t { low.append(m.label) }
         }
         return (low, high)
+    }
+}
+
+/// 体重：记一次 + 现在多少、比起点变了多少 + 趋势图（绿色带 = 按目标每月增减的范围）
+struct WeightSection: View {
+    @Environment(AppModel.self) private var model
+    let day: Date
+    @State private var draft = ""
+
+    private struct BandPoint: Identifiable {
+        var id: Date { date }
+        var date: Date
+        var low: Double
+        var high: Double
+    }
+
+    var body: some View {
+        let h = model.health
+        let latest = h.weights.last
+        let base = h.weightBaseline
+        VStack(alignment: .leading, spacing: Theme.Space.l) {
+            SectionTitle(text: "体重", systemImage: "scalemass")
+            HStack {
+                TextField("记体重，比如 145 或 65.8 kg（\(Fmt.shortDay(day))）", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(save)
+                Button("记下", action: save)
+                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            StatRow {
+                StatTile(title: "最近一次", value: latest.map { Self.text($0.lb) } ?? "—")
+                StatTile(title: "比起点", value: delta(latest, base))
+                StatTile(title: "最近 4 周", value: h.weightChange(days: 28, until: model.clock, calendar: model.calendar)
+                    .map(Self.signed) ?? "—")
+                StatTile(title: "目标每月", value: h.weightPlan.map { Self.rate($0) } ?? "—")
+            }
+            if h.weights.isEmpty {
+                Text("还没有体重记录。每周挑一天早上空腹称一次，记在上面或者跟 agent 说。").foregroundStyle(.secondary)
+            } else {
+                chart
+                Text("蓝线是每次称的；绿色带是从起点（\(base.map { Fmt.shortDay($0.date) } ?? "—")）按目标每月增减算出来的范围。一周内上下 1–2 lb 是正常波动，看几周的走向。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var chart: some View {
+        let h = model.health
+        let band: [BandPoint] = {
+            guard let plan = h.weightPlan, let base = h.weightBaseline else { return [] }
+            let end = max(h.weights.last?.date ?? base.date, model.clock).addingTimeInterval(30 * 86400)
+            return stride(from: base.date.timeIntervalSince1970, through: end.timeIntervalSince1970, by: 7 * 86400).map { t in
+                let d = Date(timeIntervalSince1970: t)
+                let b = plan.band(from: base, at: d)
+                return BandPoint(date: d, low: b.low, high: b.high)
+            }
+        }()
+        return Chart {
+            ForEach(band) { b in
+                AreaMark(x: .value("日期", b.date), yStart: .value("下限", b.low), yEnd: .value("上限", b.high), series: .value("线", "目标"))
+                    .foregroundStyle(Theme.green.opacity(0.18))
+            }
+            ForEach(h.weights) { w in
+                LineMark(x: .value("日期", w.date), y: .value("体重", w.lb), series: .value("线", "体重"))
+                    .foregroundStyle(Theme.blue)
+                PointMark(x: .value("日期", w.date), y: .value("体重", w.lb))
+                    .foregroundStyle(Theme.blue)
+                    .annotation(position: .top, spacing: 2) {
+                        Text(String(format: "%.1f", w.lb)).font(.caption2).foregroundStyle(.secondary)
+                    }
+            }
+        }
+        .chartYScale(domain: .automatic(includesZero: false))
+        .chartYAxis {
+            AxisMarks { v in
+                AxisGridLine()
+                AxisValueLabel { if let lb = v.as(Double.self) { Text("\(Int(lb)) lb") } }
+            }
+        }
+        .chartXAxis { AxisMarks(values: .stride(by: .weekOfYear)) { _ in AxisValueLabel(format: .dateTime.month(.defaultDigits).day()) } }
+        .frame(height: 180)
+    }
+
+    private func save() {
+        if model.recordWeight(day: day, value: draft) { draft = "" }
+    }
+
+    private func delta(_ latest: WeightEntry?, _ base: WeightEntry?) -> String {
+        guard let latest, let base, latest.date > base.date else { return "—" }
+        return Self.signed(latest.lb - base.lb)
+    }
+
+    /// 145.2 → “145.2 lb（65.9 kg）”
+    static func text(_ lb: Double) -> String {
+        String(format: "%.1f lb（%.1f kg）", lb, lb * WeightEntry.kgPerLb)
+    }
+
+    /// +1.3 → “+1.3 lb（+0.6 kg）”
+    static func signed(_ lb: Double) -> String {
+        String(format: "%+.1f lb（%+.1f kg）", lb, lb * WeightEntry.kgPerLb)
+    }
+
+    static func rate(_ p: WeightPlan) -> String {
+        func f(_ v: Double) -> String { v == v.rounded() ? String(format: "%+.0f", v) : String(format: "%+.1f", v) }
+        return "\(f(p.minKgPerMonth))–\(f(p.maxKgPerMonth).replacingOccurrences(of: "+", with: "")) kg"
     }
 }

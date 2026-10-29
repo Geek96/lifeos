@@ -2,7 +2,7 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-// 消费：概览 / 流水 / 账户 / 订阅。只陈述数字，不评价、不催。
+// 消费：概览（类别圆环、本月累计对照上月、预算进度）/ 流水 / 账户 / 订阅。只陈述数字，不评价、不催。
 
 struct FinanceView: View {
     @Environment(AppModel.self) private var model
@@ -59,7 +59,7 @@ struct FinanceOverview: View {
         let earned = month.filter { $0.kind == .income }.map(\.amount).reduce(0, +)
         let cats = f.spendingByCategory(inMonthOf: now, calendar: cal)
         VStack(alignment: .leading, spacing: Theme.Space.xl) {
-            HStack(spacing: Theme.Space.m) {
+            StatRow {
                 StatTile(title: "\(Fmt.string(now, "M月"))支出", value: money(spent))
                 StatTile(title: "\(Fmt.string(now, "M月"))收入", value: money(earned))
                 StatTile(title: "结余", value: money(earned - spent))
@@ -67,20 +67,31 @@ struct FinanceOverview: View {
             }
 
             VStack(alignment: .leading, spacing: Theme.Space.s) {
-                SectionTitle(text: "这个月花在哪", systemImage: "chart.bar.xaxis")
+                SectionTitle(text: "这个月花在哪", systemImage: "chart.pie")
                 if cats.isEmpty {
                     FinanceEmptyHint(text: "这个月还没有流水。把银行的消费截图发给 agent，它会读出来写进 财务/流水/。")
                 } else {
-                    CategoryBars(cats: cats, budget: f.budget)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .center, spacing: Theme.Space.xl) {
+                            CategoryDonut(cats: cats, total: spent).frame(width: 180, height: 180)
+                            CategoryBars(cats: cats, budget: f.budget)
+                        }
+                        VStack(alignment: .leading, spacing: Theme.Space.l) {
+                            CategoryDonut(cats: cats, total: spent).frame(width: 180, height: 180)
+                            CategoryBars(cats: cats, budget: f.budget)
+                        }
+                    }
                 }
             }
+
+            CumulativeSpendingChart()
 
             VStack(alignment: .leading, spacing: Theme.Space.s) {
                 SectionTitle(text: "预算", systemImage: "target")
                 if f.budget.isEmpty {
-                    FinanceEmptyHint(text: "还没定预算（之后再讨论）。定好后写进 财务/预算.md，这里会显示每个类别用了多少、还剩多少。")
+                    FinanceEmptyHint(text: "还没定预算（之后再讨论）。定好后写进 财务/预算.md，这里会显示每个类别用了多少、还剩多少，累计图上也会画一条预算线。")
                 } else {
-                    Text("上面每个类别的竖线就是预算。").font(.callout).foregroundStyle(.secondary)
+                    BudgetProgress(month: now)
                 }
             }
 
@@ -111,21 +122,153 @@ struct FinanceOverview: View {
     }
 }
 
+/// 类别的颜色：按名字排好序后在色环上取，同一个类别在各张图里颜色一样
+enum CategoryColor {
+    static let palette: [Color] = [Theme.orange, Theme.blue, Theme.green, Theme.purple, Theme.teal, Theme.indigo, Theme.red]
+
+    static func color(_ category: String, among all: [String]) -> Color {
+        let i = all.sorted().firstIndex(of: category) ?? 0
+        return palette[i % palette.count]
+    }
+}
+
+/// 这个月各类别占多少（圆环，中间写合计）
+struct CategoryDonut: View {
+    let cats: [(category: String, amount: Double)]
+    let total: Double
+
+    var body: some View {
+        let names = cats.map(\.category)
+        Chart(cats, id: \.category) { c in
+            SectorMark(angle: .value("金额", c.amount), innerRadius: .ratio(0.62), angularInset: 1.5)
+                .foregroundStyle(CategoryColor.color(c.category, among: names))
+                .cornerRadius(3)
+        }
+        .chartLegend(.hidden)
+        .chartBackground { _ in
+            VStack(spacing: 0) {
+                Text("合计").font(.caption).foregroundStyle(.secondary)
+                Text(money(total)).font(.title3.weight(.semibold)).monospacedDigit()
+            }
+        }
+        .accessibilityLabel(cats.map { "\($0.category) \(money($0.amount))" }.joined(separator: "，"))
+    }
+}
+
+/// 本月从 1 号起的累计支出（实线，画到今天）对照上个月（灰虚线）；有预算时画预算线
+struct CumulativeSpendingChart: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let cal = model.calendar
+        let f = model.finance
+        let now = model.clock
+        let this = f.cumulativeSpending(inMonthOf: now, through: now, calendar: cal)
+        let last = cal.date(byAdding: .month, value: -1, to: now).map { f.cumulativeSpending(inMonthOf: $0, calendar: cal) } ?? []
+        let budget = f.totalBudget
+        VStack(alignment: .leading, spacing: 4) {
+            SectionTitle(text: "这个月累计花了多少", systemImage: "chart.line.uptrend.xyaxis")
+            if (this.last?.total ?? 0) == 0 && (last.last?.total ?? 0) == 0 {
+                FinanceEmptyHint(text: "这个月和上个月都还没有支出记录。")
+            } else {
+                Chart {
+                    ForEach(last, id: \.day) { p in
+                        LineMark(x: .value("日", p.day), y: .value("累计", p.total), series: .value("月", "上个月"))
+                            .foregroundStyle(.secondary)
+                            .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                            .interpolationMethod(.stepEnd)
+                    }
+                    ForEach(this, id: \.day) { p in
+                        LineMark(x: .value("日", p.day), y: .value("累计", p.total), series: .value("月", "这个月"))
+                            .foregroundStyle(Theme.orange)
+                            .lineStyle(StrokeStyle(lineWidth: 2.5))
+                            .interpolationMethod(.stepEnd)
+                    }
+                    if let p = this.last {
+                        PointMark(x: .value("日", p.day), y: .value("累计", p.total))
+                            .foregroundStyle(Theme.orange)
+                            .annotation(position: .top, alignment: .trailing) {
+                                Text(money(p.total)).font(.caption.weight(.semibold)).foregroundStyle(Theme.orange)
+                            }
+                    }
+                    if budget > 0 {
+                        RuleMark(y: .value("预算", budget))
+                            .foregroundStyle(DailyBarChart.goalColor)
+                            .lineStyle(StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                            .annotation(position: .top, alignment: .leading) {
+                                Text("预算 \(money(budget))").font(.caption2.weight(.semibold)).foregroundStyle(DailyBarChart.goalColor)
+                            }
+                    }
+                }
+                .chartXScale(domain: 1...31)
+                .chartXAxis { AxisMarks(values: [1, 5, 10, 15, 20, 25, 31]) { v in AxisValueLabel { if let d = v.as(Int.self) { Text("\(d) 日") } } } }
+                .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { if let n = v.as(Double.self) { Text(money(n)) } } } }
+                .frame(height: 170)
+                Text("橙线 = 这个月（到今天）；灰虚线 = 上个月同一天累计到多少。").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// 每个类别用了预算的几成；超了变红。最上面一条是合计
+struct BudgetProgress: View {
+    @Environment(AppModel.self) private var model
+    let month: Date
+
+    var body: some View {
+        let f = model.finance
+        let spent = Dictionary(uniqueKeysWithValues: f.spendingByCategory(inMonthOf: month, calendar: model.calendar).map { ($0.category, $0.amount) })
+        let rows = f.budget.sorted { $0.value > $1.value }
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            bar("合计", used: rows.map { spent[$0.key] ?? 0 }.reduce(0, +), of: f.totalBudget, bold: true)
+            ForEach(rows, id: \.key) { cat, b in
+                bar(cat, used: spent[cat] ?? 0, of: b, bold: false)
+            }
+            Text("只算预算里写了的类别。").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func bar(_ name: String, used: Double, of budget: Double, bold: Bool) -> some View {
+        let p = budget > 0 ? used / budget : 0
+        let color = p > 1 ? Theme.red : (p > 0.8 ? Theme.orange : Theme.teal)
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(name).fontWeight(bold ? .semibold : .medium)
+                Spacer()
+                Text("\(money(used)) / \(money(budget))").monospacedDigit().foregroundStyle(p > 1 ? Theme.red : .secondary)
+                Text(p > 1 ? "超了 \(money(used - budget))" : "还剩 \(money(budget - used))")
+                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            }
+            .font(.callout)
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(color.opacity(0.15))
+                    Capsule().fill(color).frame(width: g.size.width * min(p, 1))
+                }
+            }
+            .frame(height: bold ? 10 : 7)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name) 用了 \(money(used))，预算 \(money(budget))")
+    }
+}
+
 /// 按类别的横条，有预算时画一条竖线
 struct CategoryBars: View {
     let cats: [(category: String, amount: Double)]
     let budget: [String: Double]
 
     var body: some View {
+        let names = cats.map(\.category)
         Chart {
             ForEach(cats, id: \.category) { c in
                 BarMark(x: .value("金额", c.amount), y: .value("类别", c.category))
-                    .foregroundStyle(Theme.orange.gradient)
+                    .foregroundStyle(CategoryColor.color(c.category, among: names).gradient)
                     .annotation(position: .trailing) { Text(money(c.amount)).font(.caption).foregroundStyle(.secondary) }
                 if let b = budget[c.category] {
                     RuleMark(xStart: .value("预算", b), xEnd: .value("预算", b), y: .value("类别", c.category))
-                        .lineStyle(StrokeStyle(lineWidth: 2))
-                        .foregroundStyle(.secondary)
+                        .lineStyle(StrokeStyle(lineWidth: 2.5))
+                        .foregroundStyle(DailyBarChart.goalColor)
                 }
             }
         }

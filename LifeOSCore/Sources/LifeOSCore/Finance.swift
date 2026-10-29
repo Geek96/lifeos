@@ -92,6 +92,25 @@ public struct FinanceSnapshot: Equatable, Sendable {
     }
 
     /// 截至某月的最近 n 个月：每月支出、收入
+    /// 某月从 1 号起每天的累计支出；给了 `through` 就只算到那天（本月画到今天为止）
+    public func cumulativeSpending(inMonthOf date: Date, through limit: Date? = nil, calendar: Calendar)
+        -> [(day: Int, total: Double)] {
+        guard let month = calendar.dateInterval(of: .month, for: date) else { return [] }
+        let byDay = Dictionary(grouping: entries(inMonthOf: date, calendar: calendar).filter { $0.kind == .expense }) {
+            calendar.component(.day, from: $0.date)
+        }
+        let lastDay = calendar.range(of: .day, in: .month, for: month.start)?.count ?? 30
+        let stop = limit.map { l in l < month.start ? 0 : (l >= month.end ? lastDay : calendar.component(.day, from: l)) } ?? lastDay
+        var running = 0.0
+        return (1...max(lastDay, 1)).prefix(stop).map { d in
+            running += byDay[d]?.map(\.amount).reduce(0, +) ?? 0
+            return (d, running)
+        }
+    }
+
+    /// 预算合计（每月）
+    public var totalBudget: Double { budget.values.reduce(0, +) }
+
     public func monthlyTotals(endingAt date: Date, months n: Int, calendar: Calendar)
         -> [(month: Date, expense: Double, income: Double)] {
         guard let start = calendar.dateInterval(of: .month, for: date)?.start else { return [] }

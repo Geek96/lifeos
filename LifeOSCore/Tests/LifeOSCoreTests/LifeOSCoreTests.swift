@@ -288,6 +288,71 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
         #expect(Nutrition.average([]) == nil)
     }
 
+    @Test func cumulativeMonthSpending() {
+        func e(_ day: String, _ amount: Double, _ kind: LedgerEntry.Kind = .expense) -> LedgerEntry {
+            LedgerEntry(id: day + "\(amount)", date: d(day), text: "", category: "吃", amount: amount, kind: kind, account: "")
+        }
+        let f = FinanceSnapshot(entries: [e("2026-10-02", 10), e("2026-10-02", 5), e("2026-10-05", 20), e("2026-10-06", 99, .income),
+                                          e("2026-09-30", 7)], accounts: [], subscriptions: [], budget: ["吃": 300, "玩": 50])
+        let all = f.cumulativeSpending(inMonthOf: d("2026-10-15"), calendar: cal)
+        #expect(all.count == 31 && all[0].total == 0 && all[1].total == 15 && all[4].total == 35 && all[30].total == 35)
+        #expect(f.cumulativeSpending(inMonthOf: d("2026-10-15"), through: d("2026-10-05"), calendar: cal).count == 5)
+        #expect(f.totalBudget == 350)
+    }
+
+    @Test func weightsPlanAndSleepComparison() throws {
+        let text = """
+        ---
+        type: health-weight
+        ---
+        | 日期 | 体重（lb） | 备注 |
+        |---|---|---|
+        | 2026-10-22 | 144 lb（65.3 kg） | 起点 |
+        | 2026-10-29 | 65.8 kg | |
+        | 2026-11-05 | 146.2 | |
+        | 不是日期 | 1 | |
+        """
+        let w = HealthStore.parseWeights(text, calendar: cal)
+        #expect(w.count == 3 && w[0].lb == 144 && w[0].note == "起点")
+        #expect(abs(w[1].lb - 145.06) < 0.01)
+        #expect(HealthStore.parseWeightInput("65.8 kg").map { abs($0 - 145.06) < 0.01 } == true)
+        #expect(HealthStore.parseWeightInput("145磅") == 145 && HealthStore.parseWeightInput("重") == nil)
+
+        let plan = HealthStore.parseWeightPlan("---\nsince: 2026-10-29\nweight_gain_min: 0.5\nweight_gain_max: 1\n---\n", calendar: cal)
+        #expect(plan?.minKgPerMonth == 0.5 && plan?.maxKgPerMonth == 1)
+        var s = HealthSnapshot.empty
+        s.weights = w
+        s.weightPlan = plan
+        // 起点：目标生效那天（含）之前最近一次
+        #expect(s.weightBaseline?.date == d("2026-10-29"))
+        let band = plan!.band(from: s.weightBaseline!, at: d("2026-10-29").addingTimeInterval(30.44 * 86400))
+        #expect(abs(band.low - (w[1].lb + 0.5 / WeightEntry.kgPerLb)) < 0.01 && abs(band.high - (w[1].lb + 1 / WeightEntry.kgPerLb)) < 0.01)
+        #expect(s.weightChange(days: 7, until: d("2026-11-05"), calendar: cal).map { abs($0 - 1.14) < 0.01 } == true)
+        #expect(HealthStore.parseWeightPlan("---\nweight_gain_min: -0.5\nweight_gain_max: -1\n---\n", calendar: cal)?.minKgPerMonth == -0.5)
+
+        // 体重写入：同一天替换、按日期插入
+        let vault = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let store = HealthStore(vault: vault)
+        #expect(try store.recordWeight(day: d("2026-11-05"), value: "146", calendar: cal) == nil)
+        try store.recordWeight(day: d("2026-10-29"), value: "65.8 kg", calendar: cal)
+        try store.recordWeight(day: d("2026-11-05"), value: "146.4", calendar: cal)
+        #expect(store.loadWeights(calendar: cal).map(\.lb) == [145.1, 146.4])
+        #expect(throws: HealthStore.WeightEntryError.badWeight("很重")) { try store.recordWeight(day: d("2026-11-06"), value: "很重", calendar: cal) }
+
+        let nights = [
+            SleepNight(date: d("2026-10-27"), bedtime: nil, wake: nil, minutes: 420),  // 10/26 练了
+            SleepNight(date: d("2026-10-28"), bedtime: nil, wake: nil, minutes: 480),  // 10/27 练了
+            SleepNight(date: d("2026-10-29"), bedtime: nil, wake: nil, minutes: 540),  // 10/28 没练；这天考试
+            SleepNight(date: d("2026-10-30"), bedtime: nil, wake: "08:00", minutes: nil),
+        ]
+        let c = SleepComparison.compute(nights, trainingDays: [d("2026-10-26"), d("2026-10-27")],
+                                        examDays: [d("2026-10-29")], calendar: cal)
+        #expect(c.afterTraining == 450 && c.afterTrainingCount == 2)
+        #expect(c.afterRest == 540 && c.afterRestCount == 1)
+        #expect(c.beforeExam == 540 && c.beforeExamCount == 1)
+    }
+
     @Test func completeDaysAndTargetsAtTheTime() throws {
         let vault = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: vault) }
