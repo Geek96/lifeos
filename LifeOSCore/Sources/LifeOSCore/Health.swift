@@ -81,9 +81,25 @@ public struct Meal: Equatable, Sendable, Identifiable {
 public struct DietDay: Equatable, Sendable {
     public var date: Date
     public var meals: [Meal]
+    /// frontmatter `complete`：true = 用户说记全了，false = 只记了一部分，nil = 没说
+    public var complete: Bool? = nil
 
     public var total: Nutrition { meals.compactMap(\.nutrition).reduce(.zero, +) }
     public var pendingCount: Int { meals.filter { !$0.isEstimated }.count }
+
+    /// 这天算不算“记全了”，能不能进平均：
+    /// 写了 `complete` 就按它；没写的话，过去的日子有估算过的记录就算记全，今天（还在吃）不算。
+    public func isComplete(today: Date, calendar: Calendar) -> Bool {
+        if let complete { return complete }
+        guard meals.contains(where: \.isEstimated) else { return false }
+        return date < calendar.startOfDay(for: today)
+    }
+}
+
+/// 某段时间用的每日目标：从 `since` 那天起生效，直到下一份
+public struct TargetPeriod: Equatable, Sendable {
+    public var since: Date?
+    public var targets: Nutrition
 }
 
 /// 一次复测：frontmatter 平铺的字段，保持文件里的顺序
@@ -107,8 +123,11 @@ public struct HealthTest: Equatable, Sendable, Identifiable {
 
 /// 健康插件的一次快照
 public struct HealthSnapshot: Equatable, Sendable {
+    /// 现在的目标（`健康/目标.md`）
     public var targets: Nutrition?
     public var days: [DietDay]
+    /// 所有目标（`健康/目标历史/` + 现在的），按 since 从早到晚；没写 since 的排最前
+    public var targetHistory: [TargetPeriod] = []
     public var tests: [HealthTest]
     public var body: HealthBody = .empty
     /// 训练记录，新的在前
@@ -125,6 +144,23 @@ public struct HealthSnapshot: Equatable, Sendable {
     public func day(_ date: Date, calendar: Calendar) -> DietDay {
         days.first { calendar.isDate($0.date, inSameDayAs: date) } ?? DietDay(date: calendar.startOfDay(for: date), meals: [])
     }
+
+    /// 某天当时用的目标：since 不晚于这天的最后一份；比最早一份还早就用最早那份；没有历史就用现在的
+    public func targets(on date: Date, calendar: Calendar) -> Nutrition? {
+        let day = calendar.startOfDay(for: date)
+        if let hit = targetHistory.last(where: { ($0.since ?? .distantPast) <= day }) { return hit.targets }
+        return targetHistory.first?.targets ?? targets
+    }
+
+    /// 截至某天（含）最近 n 天里记全了的那几天
+    public func completeDays(last n: Int, until date: Date, today: Date, calendar: Calendar) -> [DietDay] {
+        let end = calendar.startOfDay(for: date)
+        return (0..<n).compactMap { back in
+            guard let d = calendar.date(byAdding: .day, value: -back, to: end) else { return nil }
+            let day = self.day(d, calendar: calendar)
+            return day.isComplete(today: today, calendar: calendar) ? day : nil
+        }
+    }
 }
 
 /// `健康/` 目录的读写
@@ -134,6 +170,7 @@ public struct HealthStore: Sendable {
     public init(vault: URL) { root = vault.appendingPathComponent("健康") }
 
     public var targetsURL: URL { root.appendingPathComponent("目标.md") }
+    public var targetHistoryDir: URL { root.appendingPathComponent("目标历史") }
     public var dietDir: URL { root.appendingPathComponent("饮食") }
     public var testsDir: URL { root.appendingPathComponent("复测") }
 
@@ -142,7 +179,8 @@ public struct HealthStore: Sendable {
     }
 
     public func load(calendar: Calendar = .current) -> HealthSnapshot {
-        HealthSnapshot(targets: loadTargets(), days: loadDays(calendar: calendar), tests: loadTests(calendar: calendar),
+        HealthSnapshot(targets: loadTargets(), days: loadDays(calendar: calendar),
+                       targetHistory: loadTargetHistory(calendar: calendar), tests: loadTests(calendar: calendar),
                        body: loadBody(calendar: calendar), sessions: loadSessions(calendar: calendar),
                        exercises: loadExercises(calendar: calendar), plan: loadWeekPlan(), sleep: loadSleep(calendar: calendar))
     }
@@ -152,6 +190,17 @@ public struct HealthStore: Sendable {
     public func loadTargets() -> Nutrition? {
         guard let text = try? String(contentsOf: targetsURL, encoding: .utf8) else { return nil }
         return Self.parseTargets(text)
+    }
+
+    /// `目标历史/*.md`（以前的目标）+ `目标.md`（现在的），每份用 frontmatter `since` 标从哪天起生效
+    public func loadTargetHistory(calendar: Calendar = .current) -> [TargetPeriod] {
+        let urls = Self.markdownFiles(in: targetHistoryDir) + [targetsURL]
+        let periods: [TargetPeriod] = urls.compactMap { url in
+            guard let text = try? String(contentsOf: url, encoding: .utf8), let t = Self.parseTargets(text) else { return nil }
+            let since = Frontmatter.parse(text).fields["since"].flatMap { DateText.parse($0, calendar: calendar) }
+            return TargetPeriod(since: since.map { calendar.startOfDay(for: $0) }, targets: t)
+        }
+        return periods.sorted { ($0.since ?? .distantPast) < ($1.since ?? .distantPast) }
     }
 
     static func parseTargets(_ text: String) -> Nutrition? {
@@ -171,7 +220,12 @@ public struct HealthStore: Sendable {
             let f = Frontmatter.parse(text).fields
             let dateText = f["date"] ?? url.deletingPathExtension().lastPathComponent
             guard let date = DateText.parse(dateText, calendar: calendar) else { return nil }
-            return DietDay(date: calendar.startOfDay(for: date), meals: Self.parseMeals(text))
+            let complete: Bool? = switch f["complete"]?.lowercased() {
+                case "true", "yes", "是": true
+                case "false", "no", "否": false
+                default: nil
+            }
+            return DietDay(date: calendar.startOfDay(for: date), meals: Self.parseMeals(text), complete: complete)
         }.sorted { $0.date < $1.date }
     }
 

@@ -2,7 +2,7 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-// 健康插件的界面：今天卡片、饮食页和健身页的外框、圆环、记一顿。
+// 健康插件的界面：今天卡片、营养页和健身与锻炼页、三页共用的外框、圆环、记一顿。
 // 只显示事实（吃了多少、目标多少、还差多少），不打分、不评价、不催。
 
 /// 三个同心圆环：外 热量 / 中 蛋白质 / 内 碳水（像 Apple 健身的活动圆环）
@@ -126,17 +126,22 @@ struct HealthTodayCard: View {
             HStack {
                 SectionTitle(text: "健康", systemImage: "heart")
                 Spacer()
-                Button("详细") { model.page = .diet }
+                Button("详细") { model.page = .nutrition }
                     .buttonStyle(.link)
             }
             HStack(alignment: .top, spacing: Theme.Space.xl) {
-                if let target = model.health.targets {
+                // 翻到以前的日子：按那天当时的目标
+                if let target = model.health.targets(on: day, calendar: model.calendar) {
                     NutritionRings(total: diet.total, target: target, size: 104)
                     NutritionLegend(total: diet.total, target: target)
                 } else {
                     Text("还没有每日目标（健康/目标.md）。").foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
+            }
+            if diet.complete == false {
+                Label("这天只记了一部分，不算进平均", systemImage: "circle.lefthalf.filled")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             if !training.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
@@ -148,7 +153,7 @@ struct HealthTodayCard: View {
             if let night = model.health.sleep(on: day, calendar: model.calendar), let minutes = night.minutes {
                 Label("昨晚睡了 \(HealthFormat.sleepText(minutes))（\(night.bedtime ?? "?")–\(night.wake ?? "?")）", systemImage: "bed.double")
                     .font(.callout).foregroundStyle(.secondary)
-                    .onTapGesture { model.page = .sleep }
+                    .onTapGesture { model.page = .rest }
             }
             if isToday {
                 MealLogField()
@@ -189,7 +194,7 @@ struct TrainingSummary: View {
     }
 }
 
-/// 健康三页（饮食 / 健身 / 睡眠）共用的外框：大标题 + 可选分页条 + 内容
+/// 健康三页（营养 / 健身与锻炼 / 休息睡眠与心理健康）共用的外框：大标题 + 可选分页条 + 内容
 struct HealthPageScaffold<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
@@ -207,38 +212,38 @@ struct HealthPageScaffold<Content: View>: View {
     }
 }
 
-/// 饮食页：今天（圆环、记一顿、吃了什么、最近 7 天）/ 营养（微量营养、近 7 天平均）
-struct DietView: View {
-    @AppStorage("dietTab") private var tab = DietTab.today.rawValue
+/// 营养页：今天（圆环、记一顿、吃了什么、最近 7 天）/ 微量营养（今天每一项、近 7 天平均）
+struct NutritionView: View {
+    @AppStorage("nutritionTab") private var tab = NutritionTab.today.rawValue
 
-    enum DietTab: String, CaseIterable, Identifiable {
+    enum NutritionTab: String, CaseIterable, Identifiable {
         case today, nutrition
         var id: String { rawValue }
         var label: String {
-            switch self { case .today: "今天"; case .nutrition: "营养" }
+            switch self { case .today: "今天"; case .nutrition: "微量营养" }
         }
     }
 
     var body: some View {
-        HealthPageScaffold(title: "饮食") {
-            TabStrip(tabs: DietTab.allCases.map { ($0.rawValue, $0.label) }, selection: $tab)
-            switch DietTab(rawValue: tab) ?? .today {
-            case .today: DietTodayPage()
+        HealthPageScaffold(title: "营养") {
+            TabStrip(tabs: NutritionTab.allCases.map { ($0.rawValue, $0.label) }, selection: $tab)
+            switch NutritionTab(rawValue: tab) ?? .today {
+            case .today: NutritionTodayPage()
             case .nutrition: HealthNutritionPage()
             }
         }
     }
 }
 
-/// 饮食 · 今天：圆环 + 记一顿 + 今天吃了什么 + 最近 7 天
-struct DietTodayPage: View {
+/// 营养 · 今天：圆环 + 记一顿 + 今天吃了什么 + 最近 7 天
+struct NutritionTodayPage: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         let diet = model.health.day(model.clock, calendar: model.calendar)
         VStack(alignment: .leading, spacing: Theme.Space.xl) {
             HStack(alignment: .center, spacing: Theme.Space.xl) {
-                if let target = model.health.targets {
+                if let target = model.health.targets(on: model.clock, calendar: model.calendar) {
                     NutritionRings(total: diet.total, target: target, size: 150)
                     NutritionLegend(total: diet.total, target: target)
                 } else {
@@ -264,7 +269,7 @@ struct DietTodayPage: View {
     }
 }
 
-/// 健身页：这周数字 + 今天练什么，下面分页：计划与动作（肌肉图、一周计划、身体与复测、动作）/ 训练记录
+/// 健身与锻炼页：这周数字 + 今天练什么，下面分页：计划与动作（肌肉图、一周计划、身体与复测、动作）/ 训练记录
 struct FitnessView: View {
     @Environment(AppModel.self) private var model
     @AppStorage("fitnessTab") private var tab = FitnessTab.plan.rawValue
@@ -279,7 +284,7 @@ struct FitnessView: View {
 
     var body: some View {
         let current = FitnessTab(rawValue: tab) ?? .plan
-        HealthPageScaffold(title: "健身") {
+        HealthPageScaffold(title: "健身与锻炼") {
             // 打开了某个动作：整页给动作详情
             if current == .plan, model.openExerciseID != nil {
                 FitnessPage()
@@ -298,7 +303,7 @@ struct FitnessView: View {
     }
 }
 
-/// 健身页顶上：这周的数字 + 今天练什么
+/// 健身与锻炼页顶上：这周的数字 + 今天练什么
 struct FitnessThisWeek: View {
     @Environment(AppModel.self) private var model
 
@@ -523,38 +528,49 @@ struct WeekNutritionChart: View {
     private struct Point: Identifiable {
         var id: Date { day }
         var day: Date
-        var kcal: Double
-        var protein: Double
+        var value: Double
+        /// 那天当时的目标
+        var goal: Double?
+        /// 记全了才是实心；只记了一半 / 今天还在吃是浅色
+        var complete: Bool
+    }
+
+    /// 最近 7 天每天的某一项（热量、蛋白质 …）：吃了多少、那天的目标、记全了没有
+    private func points(_ value: (Nutrition) -> Double) -> [Point] {
+        let cal = model.calendar
+        let end = cal.startOfDay(for: model.clock)
+        return (0..<7).reversed().compactMap { back in
+            guard let d = cal.date(byAdding: .day, value: -back, to: end) else { return nil }
+            let diet = model.health.day(d, calendar: cal)
+            return Point(day: d, value: value(diet.total), goal: model.health.targets(on: d, calendar: cal).map(value),
+                         complete: diet.isComplete(today: model.clock, calendar: cal))
+        }
     }
 
     var body: some View {
-        let cal = model.calendar
-        let end = cal.startOfDay(for: model.clock)
-        let points: [Point] = (0..<7).reversed().compactMap { back in
-            guard let d = cal.date(byAdding: .day, value: -back, to: end) else { return nil }
-            let t = model.health.day(d, calendar: cal).total
-            return Point(day: d, kcal: t.kcal, protein: t.protein)
-        }
-        let target = model.health.targets
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             SectionTitle(text: "最近 7 天", systemImage: "chart.bar")
             HStack(spacing: Theme.Space.l) {
-                chart(points.map { ($0.day, $0.kcal) }, goal: target?.kcal, title: "热量（千卡）", color: NutritionRings.kcalColor)
-                chart(points.map { ($0.day, $0.protein) }, goal: target?.protein, title: "蛋白质（g）", color: NutritionRings.proteinColor)
+                chart(points(\.kcal), title: "热量（千卡）", color: NutritionRings.kcalColor)
+                chart(points(\.protein), title: "蛋白质（g）", color: NutritionRings.proteinColor)
             }
+            Text("浅色 = 只记了一部分或今天还没吃完；虚线 = 那天当时的目标。")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
-    private func chart(_ data: [(Date, Double)], goal: Double?, title: String, color: Color) -> some View {
+    private func chart(_ data: [Point], title: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             Chart {
-                ForEach(data, id: \.0) { day, value in
-                    BarMark(x: .value("日期", day, unit: .day), y: .value(title, value))
-                        .foregroundStyle(color.gradient)
+                ForEach(data) { p in
+                    BarMark(x: .value("日期", p.day, unit: .day), y: .value(title, p.value))
+                        .foregroundStyle(color.opacity(p.complete ? 1 : 0.35).gradient)
                 }
-                if let goal {
-                    RuleMark(y: .value("目标", goal))
+                // 目标改过的话，虚线在那天跳一下
+                ForEach(data.filter { $0.goal != nil }) { p in
+                    LineMark(x: .value("日期", p.day, unit: .day), y: .value("目标", p.goal ?? 0), series: .value("线", "目标"))
+                        .interpolationMethod(.stepCenter)
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                         .foregroundStyle(.secondary)
                 }
@@ -660,24 +676,30 @@ struct HealthNutritionPage: View {
     var body: some View {
         let cal = model.calendar
         let today = model.health.day(model.clock, calendar: cal)
-        let recent = (0..<7).compactMap { back -> DietDay? in
-            guard let d = cal.date(byAdding: .day, value: -back, to: cal.startOfDay(for: model.clock)) else { return nil }
-            let day = model.health.day(d, calendar: cal)
-            return day.meals.contains { $0.isEstimated } ? day : nil
-        }
+        // 只算记全了的日子；今天还在吃、只记了一半的都不算，免得把平均拉低
+        let recent = model.health.completeDays(last: 7, until: model.clock, today: model.clock, calendar: cal)
+        let partial = (1..<7).filter { back in
+            guard let d = cal.date(byAdding: .day, value: -back, to: cal.startOfDay(for: model.clock)) else { return false }
+            return model.health.day(d, calendar: cal).complete == false
+        }.count
         VStack(alignment: .leading, spacing: Theme.Space.xl) {
-            if let target = model.health.targets, !target.micros.isEmpty {
+            if let target = model.health.targets(on: model.clock, calendar: cal), !target.micros.isEmpty {
                 VStack(alignment: .leading, spacing: Theme.Space.m) {
                     SectionTitle(text: "今天", systemImage: "sun.max")
                     MicroGrid(total: today.total, target: target)
                 }
 
                 if recent.isEmpty {
-                    Text("记了几天以后，这里会显示近 7 天的平均。").foregroundStyle(.secondary)
+                    Text("记全几天以后，这里会显示近 7 天的平均。").foregroundStyle(.secondary)
                 } else {
-                    let avg = average(recent)
+                    let avg = average(recent.map(\.total))
+                    // 这几天的目标可能不一样（中间改过），平均也按当时的目标平均
+                    let target = average(recent.compactMap { model.health.targets(on: $0.date, calendar: cal) })
                     VStack(alignment: .leading, spacing: Theme.Space.m) {
-                        SectionTitle(text: "近 7 天平均（记了 \(recent.count) 天）", systemImage: "calendar")
+                        SectionTitle(text: "近 7 天平均（记全的 \(recent.count) 天）", systemImage: "calendar")
+                        if partial > 0 {
+                            Text("另有 \(partial) 天只记了一部分，没算进去。").font(.caption).foregroundStyle(.secondary)
+                        }
                         HStack(spacing: Theme.Space.m) {
                             StatTile(title: "热量", value: "\(Int(avg.kcal)) / \(Int(target.kcal))")
                             StatTile(title: "蛋白质", value: "\(Int(avg.protein)) / \(Int(target.protein)) g")
@@ -700,9 +722,10 @@ struct HealthNutritionPage: View {
         }
     }
 
-    private func average(_ days: [DietDay]) -> Nutrition {
-        let sum = days.map(\.total).reduce(.zero, +)
-        let n = Double(days.count)
+    private func average(_ values: [Nutrition]) -> Nutrition {
+        guard !values.isEmpty else { return .zero }
+        let sum = values.reduce(.zero, +)
+        let n = Double(values.count)
         return Nutrition(kcal: sum.kcal / n, protein: sum.protein / n, carbs: sum.carbs / n, fat: sum.fat / n,
                          micros: sum.micros.mapValues { $0 / n })
     }

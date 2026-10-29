@@ -245,6 +245,45 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
         #expect(day.total.kcal == 390 && day.pendingCount == 1)
     }
 
+    @Test func completeDaysAndTargetsAtTheTime() throws {
+        let vault = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let store = HealthStore(vault: vault)
+        let fm = FileManager.default
+        try fm.createDirectory(at: store.dietDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: store.targetHistoryDir, withIntermediateDirectories: true)
+        try "---\ntype: health-targets\nkcal: 2800\nprotein: 130\nsince: 2026-10-29\n---\n"
+            .write(to: store.targetsURL, atomically: true, encoding: .utf8)
+        try "---\ntype: health-targets\nkcal: 2500\nprotein: 130\nsince: 2026-10-22\n---\n"
+            .write(to: store.targetHistoryDir.appendingPathComponent("2026-10-22.md"), atomically: true, encoding: .utf8)
+        func day(_ date: String, complete: String? = nil, kcal: Int?) throws {
+            let flag = complete.map { "complete: \($0)\n" } ?? ""
+            let row = kcal.map { "| 12:00 | 饭 | \($0) | 30 | 1 | 1 |" } ?? "| 12:00 | 饭 |  |  |  |  |"
+            try "---\ntype: health-diet\ndate: \(date)\n\(flag)---\n| 时间 | 吃了什么 | 热量 | 蛋白质 | 碳水 | 脂肪 |\n|---|---|---|---|---|---|\n\(row)\n"
+                .write(to: store.dietURL(d(date), calendar: cal), atomically: true, encoding: .utf8)
+        }
+        try day("2026-10-26", kcal: 2400)                     // 没写 = 过去的日子算记全
+        try day("2026-10-27", complete: "false", kcal: 900)   // 只记了一半
+        try day("2026-10-28", kcal: nil)                      // 只有待估算的，不算
+        try day("2026-10-29", kcal: 1200)                     // 今天还在吃，不算
+        try day("2026-10-30", complete: "true", kcal: 2600)   // 写了记全，就算（哪怕是“今天”）
+
+        let s = store.load(calendar: cal)
+        let today = d("2026-10-29")
+        #expect(s.completeDays(last: 7, until: today, today: today, calendar: cal).map(\.total.kcal) == [2400])
+        #expect(s.day(d("2026-10-30"), calendar: cal).isComplete(today: d("2026-10-30"), calendar: cal))
+
+        #expect(s.targetHistory.map(\.targets.kcal) == [2500, 2800])
+        #expect(s.targets(on: d("2026-10-28"), calendar: cal)?.kcal == 2500)
+        #expect(s.targets(on: d("2026-10-29"), calendar: cal)?.kcal == 2800)
+        // 比最早一份还早：用最早那份
+        #expect(s.targets(on: d("2026-10-01"), calendar: cal)?.kcal == 2500)
+        // 没有历史：退回现在的目标
+        var bare = HealthSnapshot.empty
+        bare.targets = Nutrition(kcal: 2000)
+        #expect(bare.targets(on: today, calendar: cal)?.kcal == 2000)
+    }
+
     @Test func appendsRowAfterTableAndCreatesFile() {
         let text = "---\ntype: health-diet\n---\n\(HealthStore.tableHeader)\n| 08:30 | 鸡蛋 | 150 | 12 | 1 | 10 |\n\n## 建议\n多吃蛋白\n"
         let out = HealthStore.insertRow("| 12:00 | 鸡块 |  |  |  |  |", into: text)

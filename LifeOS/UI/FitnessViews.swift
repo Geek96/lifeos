@@ -2,7 +2,7 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-// 健身页的“计划与动作”分页：肌肉分布图 → 学期一周计划 → 身体数据与复测 → 动作（点进去看每周最好成绩和下一次怎么练）。
+// 健身与锻炼页的“计划与动作”分页：肌肉分布图 → 学期一周计划 → 身体数据与复测 → 动作（点进去看每周最好成绩和下一次怎么练）。
 
 struct FitnessPage: View {
     @Environment(AppModel.self) private var model
@@ -519,7 +519,7 @@ struct ExerciseDetailView: View {
     var body: some View {
         let cal = model.calendar
         VStack(alignment: .leading, spacing: Theme.Space.xl) {
-            Button { model.openExerciseID = nil } label: { Label("健身", systemImage: "chevron.left") }
+            Button { model.openExerciseID = nil } label: { Label("健身与锻炼", systemImage: "chevron.left") }
                 .buttonStyle(.borderless)
 
             VStack(alignment: .leading, spacing: 6) {

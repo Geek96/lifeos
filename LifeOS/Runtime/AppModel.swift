@@ -8,10 +8,10 @@ import LifeOSCore
 @MainActor
 final class AppModel {
     enum Page: Hashable {
-        case today, week, month, inbox, notes, diet, fitness, sleep, things, finance, travel, vision
+        case today, week, month, inbox, notes, nutrition, fitness, rest, things, finance, travel, vision
 
-        /// 健康插件的三页：饮食 / 健身 / 睡眠
-        var isHealth: Bool { self == .diet || self == .fitness || self == .sleep }
+        /// 健康插件的三页：营养 / 健身与锻炼 / 休息睡眠与心理健康
+        var isHealth: Bool { self == .nutrition || self == .fitness || self == .rest }
     }
 
     /// 新建 / 编辑事项的 sheet
@@ -395,7 +395,7 @@ final class AppModel {
             .sorted { $0.0.start < $1.0.start }
     }
 
-    /// 打开一个动作的详情（健身页 → 计划与动作分页）
+    /// 打开一个动作的详情（健身与锻炼页 → 计划与动作分页）
     func openExercise(_ ex: Exercise) {
         UserDefaults.standard.set("plan", forKey: "fitnessTab")
         openExerciseID = ex.id

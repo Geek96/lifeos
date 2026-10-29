@@ -2,11 +2,12 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-// 睡眠页：记一晚 + 睡了多久、几点睡几点起。只陈述，不打分、不评价、不提醒。
+// 休息睡眠与心理健康页：记一晚 + 睡了多久、几点睡几点起。只陈述，不打分、不评价、不提醒。
+// 心理健康的部分还没做（格式要先和用户商量），现在这页只有睡眠。
 
-struct SleepView: View {
+struct RestView: View {
     var body: some View {
-        HealthPageScaffold(title: "睡眠") {
+        HealthPageScaffold(title: "休息睡眠与心理健康") {
             SleepEntryForm()
             SleepPage()
         }

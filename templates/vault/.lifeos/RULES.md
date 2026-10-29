@@ -1,5 +1,5 @@
 ---
-rules-version: 7
+rules-version: 8
 ---
 # LifeOS 规则（在本 vault 工作的所有 agent 必读）
 
@@ -58,11 +58,16 @@ created: 2026-10-15
 插件在 `lifeos.json` 的 `plugins` 里开关（App 设置 → 插件），关着的插件不要动它的文件。
 
 ### 健康（`plugins.health`）
-数据都在 `健康/` 下，agent 写、App 读（App 只会在当天饮食表末尾追加一行“还没估算”的记录）：
-- `健康/目标.md`：frontmatter `type: health-targets`、`kcal`、`protein`、`carbs`、`fat`（只写数字），正文写怎么算的。
-- `健康/饮食/YYYY-MM-DD.md`：frontmatter `type: health-diet`、`date`；正文一张固定列的表
+数据都在 `健康/` 下，agent 写、App 读（App 只会在当天饮食表末尾追加一行“还没估算”的记录，和在睡眠表里记一晚）。
+App 左栏把健康拆成三页：**营养**、**健身与锻炼**、**休息睡眠与心理健康**。
+- `健康/目标.md`：frontmatter `type: health-targets`、`since`（这份目标从哪天起生效）、`kcal`、`protein`、`carbs`、`fat`（只写数字），正文写怎么算的。
+- `健康/目标历史/{since}.md`：以前的目标，格式和 `目标.md` 一样（多一个 `until`）。**改目标时先把旧的一份原样存进来**（文件名用旧的 `since`），
+  再改 `目标.md` 的数字和 `since`。App 按 since 给每一天找当时的目标：以前的日子的圆环、7 天图、平均都按当时的目标算。
+- `健康/饮食/YYYY-MM-DD.md`：frontmatter `type: health-diet`、`date`，可选 `complete`；正文一张固定列的表
   `| 时间 | 吃了什么 | 热量 | 蛋白质 | 碳水 | 脂肪 |`，数字列只写数字（克、千卡），空 = 还没估算。
   表下面可以有“## 建议”：一两句接下来吃什么。
+  - `complete`：用户说某天有一顿没报 / 只记了一部分 → `complete: false`；用户说今天都记完了 → `complete: true`。
+    没写的话：过去的日子算记全，今天算“还在吃”。App 算平均只用记全的日子，只记了一半的在图上是浅色。不要为了这个追问用户。
 - `健康/复测/*.md`：frontmatter `type: health-test`、`date`，指标平铺（`weight`、`waist`、`mile`、`pushups`、`bench` …）。
 - `健康/身体.md`：frontmatter `type: health-body`、`updated`，当前数据平铺（`height`、`weight`、`bench`、`squat`、`deadlift`、`pushups`、`mile`、`longest_run` …，值可带单位）。
 - `健康/训练记录/YYYY-MM-DD 标题.md`：frontmatter `type: health-session`、`date`、`kind`（run / strength）、`title`；
@@ -81,10 +86,10 @@ agent 不提醒用户记饮食，不评价吃得好不好，不因为没记而�
 - **睡眠**：`健康/睡眠/YYYY-MM.md`，一个月一个文件。frontmatter `type: health-sleep`、`month`（如 `2026-10`）；正文一张固定列的表
   `| 日期 | 入睡 | 起床 | 时长 |`，一晚一行。`日期` 写**起床那天**；`入睡`、`起床` 写 24 小时制 `HH:MM`；`时长` 写 `H:MM`（agent 按入睡、起床算好再写，跨午夜照算）。
   用户只说了起床或只说了入睡，另一个空着、时长也空着，不要猜。和饮食一样**不打卡**：只在用户主动说时记，不提醒、不评价睡得好不好。
-  App 左栏“健康 → 睡眠”页读这个文件；那页的“记一晚”也会写它（同一天替换那一行，没有就按日期插进去，格式和上面一样），
+  App 左栏“休息睡眠与心理健康”页读这个文件；那页的“记一晚”也会写它（同一天替换那一行，没有就按日期插进去，格式和上面一样），
   所以 agent 写之前先看那天是不是已经有一行了，有就改那一行，不要重复加。
 
-- **健身**（App 左栏“健康 → 健身”页）：
+- **健身**（App 左栏“健身与锻炼”页）：
   - `健康/训练计划.md`：`type: training-plan`，`## 学期一周` 一张表 `| 星期 | 时间 | 内容 | 动作 |`（动作用 `、` 分隔，名字和 `健康/动作/` 里文件的 `name` 字段一致，App 按 `name` 找，不看文件名），下面的 `- ` 列表是说明。计划改了同步改这里和 `事项/` 里的训练事项。
   - `健康/动作/{动作名}.md`：每个动作一个文件。frontmatter：`type: exercise`、`name`、`name_en`、`kind`（strength 负重 / bodyweight 自重 / timed 计时 / cardio 有氧）、
     `primary`、`secondary`（练到的肌肉，用这些键：neck、trapezius、front-deltoids、back-deltoids、chest、upper-back、biceps、triceps、forearm、abs、obliques、
@@ -101,7 +106,7 @@ agent 不提醒用户记饮食，不评价吃得好不好，不因为没记而�
   - 报训练 → `健康/训练记录/` 一份 + 每个动作的“记录”表各一行；`健康/动作/` 里没有这个动作，就新建动作文件（查肌肉、写 `source`）。
   - 换了动作（如哑铃肩推 → 杠铃肩推、腿举 → 哈克深蹲）→ 同时改 `健康/训练计划.md` 的动作列、对应训练事项“练什么”表；旧动作文件留着不删。
   - 力量明显变了 / 报了体重 → 更新 `健康/身体.md` 对应字段和 `updated`。
-  - 改了目标（增肌、减脂）→ `健康/目标.md` 和 `健康/食谱.md` 开头的目标数字一起改。
+  - 改了目标（增肌、减脂）→ 旧的存进 `健康/目标历史/`，再改 `健康/目标.md`（数字和 `since`）和 `健康/食谱.md` 开头的目标数字。
   - 报吃的 → 当天饮食表 + 今日累计；用到新包装标签就存照片到 `健康/饮食/照片/`，并把以前按估计记的同一种食物改成标签值。
   - 肌肉分布图的图形来自 react-body-highlighter（MIT License），App 自带，不用管。
 
