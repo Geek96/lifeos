@@ -2,7 +2,7 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-// 健康插件的界面：今天卡片、营养页和健身与锻炼页、三页共用的外框、圆环、记一顿。
+// 健康插件共用的界面：今天卡片、三页共用的外框、圆环、记一顿、训练记录、复测、微量营养。
 // 只显示事实（吃了多少、目标多少、还差多少），不打分、不评价、不催。
 
 /// 三个同心圆环：外 热量 / 中 蛋白质 / 内 碳水（像 Apple 健身的活动圆环）
@@ -74,14 +74,16 @@ struct NutritionLegend: View {
     }
 }
 
-/// 记一顿：一句话写进今天的饮食表，数字留给 agent 估算
+/// 记一顿：一句话写进那天的饮食表，数字留给 agent 估算。`day` 不是今天就是补记
 struct MealLogField: View {
     @Environment(AppModel.self) private var model
+    var day: Date? = nil
     @State private var draft = ""
 
     var body: some View {
+        let past = day.map { !model.calendar.isDate($0, inSameDayAs: model.clock) } ?? false
         HStack {
-            TextField("记一顿，比如“午饭 Chick-fil-A 烤鸡块 12 块”", text: $draft)
+            TextField(past ? "补记这天吃的，比如“晚饭 挂面一把、两个鸡蛋”" : "记一顿，比如“午饭 Chick-fil-A 烤鸡块 12 块”", text: $draft)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(save)
             Button("记下", action: save)
@@ -92,7 +94,7 @@ struct MealLogField: View {
     private func save() {
         let t = draft.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty else { return }
-        model.logMeal(t)
+        model.logMeal(t, on: day)
         draft = ""
     }
 }
@@ -194,7 +196,7 @@ struct TrainingSummary: View {
     }
 }
 
-/// 健康三页（营养 / 健身与锻炼 / 休息睡眠与心理健康）共用的外框：大标题 + 可选分页条 + 内容
+/// 健康三页（营养 / 健身与锻炼 / 休息与放松）共用的外框：大标题 + 可选分页条 + 内容
 struct HealthPageScaffold<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
@@ -208,127 +210,6 @@ struct HealthPageScaffold<Content: View>: View {
             .padding(Theme.Space.xl)
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity)
-        }
-    }
-}
-
-/// 营养页：今天（圆环、记一顿、吃了什么、最近 7 天）/ 微量营养（今天每一项、近 7 天平均）
-struct NutritionView: View {
-    @AppStorage("nutritionTab") private var tab = NutritionTab.today.rawValue
-
-    enum NutritionTab: String, CaseIterable, Identifiable {
-        case today, nutrition
-        var id: String { rawValue }
-        var label: String {
-            switch self { case .today: "今天"; case .nutrition: "微量营养" }
-        }
-    }
-
-    var body: some View {
-        HealthPageScaffold(title: "营养") {
-            TabStrip(tabs: NutritionTab.allCases.map { ($0.rawValue, $0.label) }, selection: $tab)
-            switch NutritionTab(rawValue: tab) ?? .today {
-            case .today: NutritionTodayPage()
-            case .nutrition: HealthNutritionPage()
-            }
-        }
-    }
-}
-
-/// 营养 · 今天：圆环 + 记一顿 + 今天吃了什么 + 最近 7 天
-struct NutritionTodayPage: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let diet = model.health.day(model.clock, calendar: model.calendar)
-        VStack(alignment: .leading, spacing: Theme.Space.xl) {
-            HStack(alignment: .center, spacing: Theme.Space.xl) {
-                if let target = model.health.targets(on: model.clock, calendar: model.calendar) {
-                    NutritionRings(total: diet.total, target: target, size: 150)
-                    NutritionLegend(total: diet.total, target: target)
-                } else {
-                    Text("还没有每日目标（健康/目标.md）。").foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-            }
-
-            VStack(alignment: .leading, spacing: Theme.Space.s) {
-                MealLogField()
-                PendingMealsHint(count: diet.pendingCount)
-            }
-
-            if !diet.meals.isEmpty {
-                VStack(alignment: .leading, spacing: Theme.Space.s) {
-                    SectionTitle(text: "今天吃了什么（\(diet.meals.count) 条）", systemImage: "fork.knife")
-                    MealTable(meals: diet.meals)
-                }
-            }
-
-            WeekNutritionChart()
-        }
-    }
-}
-
-/// 健身与锻炼页：这周数字 + 今天练什么，下面分页：计划与动作（肌肉图、一周计划、身体与复测、动作）/ 训练记录
-struct FitnessView: View {
-    @Environment(AppModel.self) private var model
-    @AppStorage("fitnessTab") private var tab = FitnessTab.plan.rawValue
-
-    enum FitnessTab: String, CaseIterable, Identifiable {
-        case plan, log
-        var id: String { rawValue }
-        var label: String {
-            switch self { case .plan: "计划与动作"; case .log: "训练记录" }
-        }
-    }
-
-    var body: some View {
-        let current = FitnessTab(rawValue: tab) ?? .plan
-        HealthPageScaffold(title: "健身与锻炼") {
-            // 打开了某个动作：整页给动作详情
-            if current == .plan, model.openExerciseID != nil {
-                FitnessPage()
-            } else {
-                FitnessThisWeek()
-                TabStrip(tabs: FitnessTab.allCases.map { ($0.rawValue, $0.label) }, selection: $tab)
-                switch current {
-                case .plan: FitnessPage()
-                case .log: HealthLogPage()
-                }
-            }
-        }
-        // 换到别的分页 / 别的页才收起动作详情（打开动作时会把分页写成 plan，那次不算）
-        .onChange(of: tab) { if tab != FitnessTab.plan.rawValue { model.openExerciseID = nil } }
-        .onChange(of: model.page) { if model.page != .fitness { model.openExerciseID = nil } }
-    }
-}
-
-/// 健身与锻炼页顶上：这周的数字 + 今天练什么
-struct FitnessThisWeek: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let cal = model.calendar
-        let today = model.clock
-        let training = model.training(on: today)
-        let week = WeekStats.compute(model.health.sessions, calendar: cal)
-            .first { cal.isDate($0.weekStart, equalTo: today, toGranularity: .weekOfYear) }
-        VStack(alignment: .leading, spacing: Theme.Space.l) {
-            HStack(spacing: Theme.Space.m) {
-                StatTile(title: "这周训练", value: "\(week?.sessions ?? 0) 次")
-                StatTile(title: "这周跑了", value: week.map { String(format: "%.1f km", $0.runKm) } ?? "0 km")
-                StatTile(title: "平均配速", value: week?.pace.map { HealthFormat.minutesText($0) + " /km" } ?? "—")
-            }
-            VStack(alignment: .leading, spacing: Theme.Space.s) {
-                SectionTitle(text: "今天练什么", systemImage: "figure.strengthtraining.traditional")
-                if training.isEmpty {
-                    Text("今天休息。").foregroundStyle(.secondary)
-                } else {
-                    ForEach(training, id: \.occurrence.id) { t in
-                        TrainingSummary(occurrence: t.occurrence, item: t.item, maxRows: 8)
-                    }
-                }
-            }
         }
     }
 }
@@ -521,71 +402,6 @@ struct MealTable: View {
     }
 }
 
-/// 最近 7 天的热量和蛋白质，虚线是目标
-struct WeekNutritionChart: View {
-    @Environment(AppModel.self) private var model
-
-    private struct Point: Identifiable {
-        var id: Date { day }
-        var day: Date
-        var value: Double
-        /// 那天当时的目标
-        var goal: Double?
-        /// 记全了才是实心；只记了一半 / 今天还在吃是浅色
-        var complete: Bool
-    }
-
-    /// 最近 7 天每天的某一项（热量、蛋白质 …）：吃了多少、那天的目标、记全了没有
-    private func points(_ value: (Nutrition) -> Double) -> [Point] {
-        let cal = model.calendar
-        let end = cal.startOfDay(for: model.clock)
-        return (0..<7).reversed().compactMap { back in
-            guard let d = cal.date(byAdding: .day, value: -back, to: end) else { return nil }
-            let diet = model.health.day(d, calendar: cal)
-            return Point(day: d, value: value(diet.total), goal: model.health.targets(on: d, calendar: cal).map(value),
-                         complete: diet.isComplete(today: model.clock, calendar: cal))
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.m) {
-            SectionTitle(text: "最近 7 天", systemImage: "chart.bar")
-            HStack(spacing: Theme.Space.l) {
-                chart(points(\.kcal), title: "热量（千卡）", color: NutritionRings.kcalColor)
-                chart(points(\.protein), title: "蛋白质（g）", color: NutritionRings.proteinColor)
-            }
-            Text("浅色 = 只记了一部分或今天还没吃完；虚线 = 那天当时的目标。")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private func chart(_ data: [Point], title: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Chart {
-                ForEach(data) { p in
-                    BarMark(x: .value("日期", p.day, unit: .day), y: .value(title, p.value))
-                        .foregroundStyle(color.opacity(p.complete ? 1 : 0.35).gradient)
-                }
-                // 目标改过的话，虚线在那天跳一下
-                ForEach(data.filter { $0.goal != nil }) { p in
-                    LineMark(x: .value("日期", p.day, unit: .day), y: .value("目标", p.goal ?? 0), series: .value("线", "目标"))
-                        .interpolationMethod(.stepCenter)
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .chartXAxis {
-                AxisMarks(values: .stride(by: .day)) { _ in
-                    AxisValueLabel(format: .dateTime.weekday(.narrow))
-                }
-            }
-            .frame(height: 140)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
 /// 复测：每次一列，指标一行
 struct TestsTable: View {
     let tests: [HealthTest]
@@ -666,78 +482,5 @@ struct MicroGrid: View {
                 MicroBar(nutrient: m, value: total.micros[m.key] ?? 0, target: target.micros[m.key] ?? 0)
             }
         }
-    }
-}
-
-/// 营养：今天每一项 + 近 7 天平均 + 一直偏低 / 偏高的
-struct HealthNutritionPage: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        let cal = model.calendar
-        let today = model.health.day(model.clock, calendar: cal)
-        // 只算记全了的日子；今天还在吃、只记了一半的都不算，免得把平均拉低
-        let recent = model.health.completeDays(last: 7, until: model.clock, today: model.clock, calendar: cal)
-        let partial = (1..<7).filter { back in
-            guard let d = cal.date(byAdding: .day, value: -back, to: cal.startOfDay(for: model.clock)) else { return false }
-            return model.health.day(d, calendar: cal).complete == false
-        }.count
-        VStack(alignment: .leading, spacing: Theme.Space.xl) {
-            if let target = model.health.targets(on: model.clock, calendar: cal), !target.micros.isEmpty {
-                VStack(alignment: .leading, spacing: Theme.Space.m) {
-                    SectionTitle(text: "今天", systemImage: "sun.max")
-                    MicroGrid(total: today.total, target: target)
-                }
-
-                if recent.isEmpty {
-                    Text("记全几天以后，这里会显示近 7 天的平均。").foregroundStyle(.secondary)
-                } else {
-                    let avg = average(recent.map(\.total))
-                    // 这几天的目标可能不一样（中间改过），平均也按当时的目标平均
-                    let target = average(recent.compactMap { model.health.targets(on: $0.date, calendar: cal) })
-                    VStack(alignment: .leading, spacing: Theme.Space.m) {
-                        SectionTitle(text: "近 7 天平均（记全的 \(recent.count) 天）", systemImage: "calendar")
-                        if partial > 0 {
-                            Text("另有 \(partial) 天只记了一部分，没算进去。").font(.caption).foregroundStyle(.secondary)
-                        }
-                        HStack(spacing: Theme.Space.m) {
-                            StatTile(title: "热量", value: "\(Int(avg.kcal)) / \(Int(target.kcal))")
-                            StatTile(title: "蛋白质", value: "\(Int(avg.protein)) / \(Int(target.protein)) g")
-                        }
-                        MicroGrid(total: avg, target: target)
-                    }
-                    let (low, high) = flags(avg, target)
-                    if !low.isEmpty || !high.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            SectionTitle(text: "这一周的规律", systemImage: "lightbulb")
-                            if !high.isEmpty { Label("超过上限：" + high.joined(separator: "、"), systemImage: "arrow.up.circle").foregroundStyle(Theme.orange) }
-                            if !low.isEmpty { Label("平均不到推荐量的七成：" + low.joined(separator: "、"), systemImage: "arrow.down.circle").foregroundStyle(Theme.blue) }
-                            Text("微量营养是按描述估的，单天不一定准，看一周的规律更可靠。").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            } else {
-                Text("健康/目标.md 里还没写微量营养的目标（sodium、fiber、vitamin_d …）。").foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func average(_ values: [Nutrition]) -> Nutrition {
-        guard !values.isEmpty else { return .zero }
-        let sum = values.reduce(.zero, +)
-        let n = Double(values.count)
-        return Nutrition(kcal: sum.kcal / n, protein: sum.protein / n, carbs: sum.carbs / n, fat: sum.fat / n,
-                         micros: sum.micros.mapValues { $0 / n })
-    }
-
-    private func flags(_ avg: Nutrition, _ target: Nutrition) -> (low: [String], high: [String]) {
-        var low: [String] = [], high: [String] = []
-        for m in Micronutrient.all {
-            guard let t = target.micros[m.key], t > 0 else { continue }
-            let v = avg.micros[m.key] ?? 0
-            if m.isLimit, v > t { high.append(m.label) }
-            if !m.isLimit, v < 0.7 * t { low.append(m.label) }
-        }
-        return (low, high)
     }
 }

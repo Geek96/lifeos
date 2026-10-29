@@ -245,6 +245,49 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
         #expect(day.total.kcal == 390 && day.pendingCount == 1)
     }
 
+    @Test func periodsAndSummaries() {
+        // 2026-10-29 是周四；和 App 一样周一起
+        var cal = cal
+        cal.firstWeekday = 2
+        let week = HealthPeriod(scale: .week, anchor: d("2026-10-29"))
+        let days = week.days(calendar: cal)
+        #expect(days.count == 7 && cal.isDate(days[0], inSameDayAs: d("2026-10-26")))
+        #expect(HealthPeriod(scale: .month, anchor: d("2026-10-29")).days(calendar: cal).count == 31)
+        #expect(HealthPeriod(scale: .day, anchor: d("2026-10-29")).days(calendar: cal).count == 1)
+        #expect(cal.isDate(week.stepped(-1, calendar: cal).days(calendar: cal)[0], inSameDayAs: d("2026-10-19")))
+        let nov = HealthPeriod(scale: .month, anchor: d("2026-10-29")).stepped(1, calendar: cal)
+        #expect(nov.days(calendar: cal).count == 30)
+
+        var s = HealthSnapshot.empty
+        s.sleep = [
+            SleepNight(date: d("2026-10-27"), bedtime: "23:30", wake: "07:30", minutes: 480),
+            SleepNight(date: d("2026-10-28"), bedtime: "00:30", wake: "08:30", minutes: 480),
+            SleepNight(date: d("2026-10-30"), bedtime: nil, wake: "08:00", minutes: nil),
+            SleepNight(date: d("2026-11-02"), bedtime: "01:00", wake: "09:00", minutes: 480),
+        ]
+        let sum = s.sleepSummary(in: week.interval(calendar: cal))
+        #expect(sum.nights.count == 3 && sum.averageMinutes == 480)
+        // 23:30 和 00:30 平均是 00:00，不是中午
+        #expect(sum.averageBedtime == "00:00")
+        #expect(sum.averageWake == "08:00")
+        #expect(HealthSnapshot.bedtimeHour("00:30") == 24.5 && HealthSnapshot.bedtimeHour("23:30") == 23.5)
+
+        let url = URL(fileURLWithPath: "/tmp/x.md")
+        s.sessions = [
+            HealthSession(fileURL: url, date: d("2026-10-26"), kind: .strength, title: "上肢", volume: 3000, note: ""),
+            HealthSession(fileURL: url, date: d("2026-10-26"), kind: .run, title: "跑", distanceKm: 2, minutes: 14, note: ""),
+            HealthSession(fileURL: url, date: d("2026-10-27"), kind: .strength, title: "下肢", volume: 5000, note: ""),
+            HealthSession(fileURL: url, date: d("2026-10-20"), kind: .strength, title: "上周", volume: 999, note: ""),
+        ]
+        let f = s.fitnessSummary(in: week.interval(calendar: cal), calendar: cal)
+        #expect(f.sessions.count == 3 && f.activeDays == 2 && f.strengthCount == 2 && f.runCount == 1)
+        #expect(f.volume == 8000 && f.runKm == 2 && f.pace == 7)
+
+        let avg = Nutrition.average([Nutrition(kcal: 2000, micros: ["sodium": 3000]), Nutrition(kcal: 3000)])
+        #expect(avg?.kcal == 2500 && avg?.micros["sodium"] == 3000)
+        #expect(Nutrition.average([]) == nil)
+    }
+
     @Test func completeDaysAndTargetsAtTheTime() throws {
         let vault = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: vault) }

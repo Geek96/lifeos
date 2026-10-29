@@ -10,7 +10,7 @@ final class AppModel {
     enum Page: Hashable {
         case today, week, month, inbox, notes, nutrition, fitness, rest, things, finance, travel, vision
 
-        /// 健康插件的三页：营养 / 健身与锻炼 / 休息睡眠与心理健康
+        /// 健康插件的三页：营养 / 健身与锻炼 / 休息与放松
         var isHealth: Bool { self == .nutrition || self == .fitness || self == .rest }
     }
 
@@ -363,12 +363,12 @@ final class AppModel {
         }
     }
 
-    func capture(_ text: String) {
+    func capture(_ text: String, message: String = "已记进收件箱") {
         guard let store else { return }
         do {
             try store.appendInbox(text)
             reload()
-            feedback.show("已记进收件箱")
+            feedback.show(message)
         } catch {
             feedback.show("没能记下：\(error.localizedDescription)")
         }
@@ -425,12 +425,15 @@ final class AppModel {
     }
 
     /// 在今天的饮食表里记一顿（还没估算，等 agent 补数字）；可撤销
-    func logMeal(_ text: String) {
+    /// `day` 不是今天时是补记：时间一栏写“补记”
+    func logMeal(_ text: String, on day: Date? = nil) {
         guard let root = vaultRoot else { return }
         let store = HealthStore(vault: root)
-        let url = store.dietURL(clock, calendar: calendar)
+        let target = day ?? Date()
+        let isToday = calendar.isDate(target, inSameDayAs: Date())
+        let url = store.dietURL(target, calendar: calendar)
         do {
-            let before = try store.appendMeal(text, at: Date(), calendar: calendar)
+            let before = try store.appendMeal(text, at: isToday ? Date() : target, time: isToday ? nil : "补记", calendar: calendar)
             reload()
             feedback.show("已记下，等 agent 估算营养", undo: { [weak self] in
                 if let before { try? before.write(to: url, atomically: true, encoding: .utf8) }

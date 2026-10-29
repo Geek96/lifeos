@@ -1,7 +1,7 @@
 import Foundation
 
 // 健康插件：数据都在 vault 的 `健康/` 下，由 agent 写、App 读；
-// App 唯一会写的是在当天的饮食表里追加一行“还没估算”的记录。
+// App 会写的只有：在饮食表里追加一行“还没估算”的记录，和在睡眠表里记一晚（Sleep.swift）。
 
 /// 热量与三大营养素（克）
 public struct Nutrition: Equatable, Sendable {
@@ -255,14 +255,15 @@ public struct HealthStore: Sendable {
         }
     }
 
-    /// 在当天的饮食表里追加一行还没估算的记录；文件不存在就新建。返回改动前的内容（撤销用，新建时为 nil）。
+    /// 在那天的饮食表里追加一行还没估算的记录；文件不存在就新建。返回改动前的内容（撤销用，新建时为 nil）。
+    /// `time` 不给就用 `date` 的时分（补记以前的日子时传“补记”）。
     @discardableResult
-    public func appendMeal(_ text: String, at date: Date, calendar: Calendar = .current) throws -> String? {
+    public func appendMeal(_ text: String, at date: Date, time: String? = nil, calendar: Calendar = .current) throws -> String? {
         let clean = text.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "|", with: "/")
             .trimmingCharacters(in: .whitespaces)
         guard !clean.isEmpty else { return nil }
         let url = dietURL(date, calendar: calendar)
-        let time = Self.timeFormatter(calendar).string(from: date)
+        let time = time ?? Self.timeFormatter(calendar).string(from: date)
         let row = "| \(time) | \(clean) |" + String(repeating: "  |", count: 4 + Self.defaultMicroColumns.count)
         let fm = FileManager.default
         guard let before = try? String(contentsOf: url, encoding: .utf8) else {

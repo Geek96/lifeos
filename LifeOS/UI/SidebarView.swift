@@ -35,7 +35,7 @@ struct SidebarView: View {
                     if model.config.plugins.health {
                         Label("营养", systemImage: "fork.knife").tag(AppModel.Page.nutrition)
                         Label("健身与锻炼", systemImage: "figure.strengthtraining.traditional").tag(AppModel.Page.fitness)
-                        Label("休息睡眠与心理健康", systemImage: "bed.double").tag(AppModel.Page.rest)
+                        Label("休息与放松", systemImage: "bed.double").tag(AppModel.Page.rest)
                     }
                     if model.config.plugins.things {
                         Label("物品", systemImage: "shippingbox").tag(AppModel.Page.things)

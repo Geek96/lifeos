@@ -655,3 +655,213 @@ struct ExerciseDetailView: View {
         }
     }
 }
+
+// MARK: - 健身与锻炼页
+
+/// 健身与锻炼页：记录（日 / 周 / 月）/ 长期趋势（每周变化 + 归档）/ 计划与动作（肌肉图、一周计划、身体与复测、动作）
+struct FitnessView: View {
+    @Environment(AppModel.self) private var model
+    @AppStorage("fitnessTab") private var tab = FitnessTab.records.rawValue
+    @AppStorage("fitnessScale") private var scale = HealthPeriod.Scale.week.rawValue
+    @State private var anchor = Date()
+
+    enum FitnessTab: String, CaseIterable, Identifiable {
+        case records, trend, plan
+        var id: String { rawValue }
+        var label: String {
+            switch self { case .records: "记录"; case .trend: "长期趋势"; case .plan: "计划与动作" }
+        }
+    }
+
+    var body: some View {
+        let current = FitnessTab(rawValue: tab) ?? .records
+        let period = HealthPeriod(scale: HealthPeriod.Scale(rawValue: scale) ?? .week, anchor: anchor)
+        HealthPageScaffold(title: "健身与锻炼") {
+            // 打开了某个动作：整页给动作详情
+            if current == .plan, model.openExerciseID != nil {
+                FitnessPage()
+            } else {
+                TabStrip(tabs: FitnessTab.allCases.map { ($0.rawValue, $0.label) }, selection: $tab)
+                switch current {
+                case .records:
+                    HealthPeriodBar(period: Binding(get: { period }, set: { scale = $0.scale.rawValue; anchor = $0.anchor }))
+                    switch period.scale {
+                    case .day: FitnessDayPage(day: anchor)
+                    case .week, .month:
+                        FitnessRangePage(period: period) { d in anchor = d; scale = HealthPeriod.Scale.day.rawValue }
+                    }
+                case .trend: HealthLogPage()
+                case .plan: FitnessPage()
+                }
+            }
+        }
+        // 换到别的分页 / 别的页才收起动作详情（打开动作时会把分页写成 plan，那次不算）
+        .onChange(of: tab) { if tab != FitnessTab.plan.rawValue { model.openExerciseID = nil } }
+        .onChange(of: model.page) { if model.page != .fitness { model.openExerciseID = nil } }
+    }
+}
+
+/// 健身 · 日：计划练什么 + 实际练了什么 + 记一笔
+struct FitnessDayPage: View {
+    @Environment(AppModel.self) private var model
+    let day: Date
+
+    var body: some View {
+        let cal = model.calendar
+        let planned = model.training(on: day)
+        let iv = HealthPeriod(scale: .day, anchor: day).interval(calendar: cal)
+        let summary = model.health.fitnessSummary(in: iv, calendar: cal)
+        let future = cal.startOfDay(for: day) > cal.startOfDay(for: model.clock)
+        VStack(alignment: .leading, spacing: Theme.Space.xl) {
+            if !summary.sessions.isEmpty {
+                HStack(spacing: Theme.Space.m) {
+                    StatTile(title: "训练", value: "\(summary.sessions.count) 次")
+                    StatTile(title: "训练量", value: summary.volume > 0 ? "\(Int(summary.volume)) lb×次" : "—")
+                    StatTile(title: "跑步", value: summary.runKm > 0 ? String(format: "%.1f km", summary.runKm) : "—")
+                }
+            }
+
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                SectionTitle(text: "计划", systemImage: "calendar")
+                if planned.isEmpty {
+                    Text("这天没有安排训练。").foregroundStyle(.secondary)
+                } else {
+                    ForEach(planned, id: \.occurrence.id) { t in
+                        TrainingSummary(occurrence: t.occurrence, item: t.item, maxRows: 8)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                SectionTitle(text: "实际练了", systemImage: "checkmark.circle")
+                if summary.sessions.isEmpty {
+                    Text(future ? "还没到这天。" : "这天还没有训练记录。").foregroundStyle(.secondary)
+                } else {
+                    ForEach(summary.sessions) { s in SessionRow(session: s) }
+                }
+            }
+
+            if !future { WorkoutNoteField(day: day) }
+        }
+    }
+}
+
+/// 记一笔练了什么：放进收件箱，agent 整理成训练记录和动作记录（组次的格式要求多，App 不直接写）
+struct WorkoutNoteField: View {
+    @Environment(AppModel.self) private var model
+    let day: Date
+    @State private var draft = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                TextField("记一笔练了什么，比如“卧推 75 lb 3×12，划船 70 lb 3×10”", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(save)
+                Button("记下", action: save)
+                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            Text("会放进收件箱，agent 整理进训练记录和每个动作的记录。").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func save() {
+        let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        model.capture("训练 \(Fmt.string(day, "M/d"))：\(t)", message: "已记进收件箱，等 agent 整理进训练记录")
+        draft = ""
+    }
+}
+
+/// 健身 · 周 / 月：次数、天数、里程、训练量，计划和实际对照，按天的图，这段时间的每一次
+struct FitnessRangePage: View {
+    @Environment(AppModel.self) private var model
+    let period: HealthPeriod
+    let onSelectDay: (Date) -> Void
+
+    var body: some View {
+        let cal = model.calendar
+        let days = period.days(calendar: cal)
+        let summary = model.health.fitnessSummary(in: period.interval(calendar: cal), calendar: cal)
+        let planned = days.filter { !model.training(on: $0).isEmpty }.count
+        VStack(alignment: .leading, spacing: Theme.Space.xl) {
+            HStack(spacing: Theme.Space.m) {
+                StatTile(title: "训练", value: "\(summary.sessions.count) 次")
+                StatTile(title: "练了", value: "\(summary.activeDays) / \(planned) 天（计划）")
+                StatTile(title: "跑步", value: String(format: "%.1f km", summary.runKm))
+                StatTile(title: "训练量", value: "\(Int(summary.volume)) lb×次")
+            }
+            if let pace = summary.pace {
+                Text("平均配速 \(HealthFormat.minutesText(pace)) /km").font(.callout).foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                SectionTitle(text: "计划和实际", systemImage: "calendar.badge.checkmark")
+                if period.scale == .week {
+                    HStack(spacing: Theme.Space.s) {
+                        ForEach(days, id: \.self) { d in dayChip(d) }
+                    }
+                } else {
+                    MonthHeatGrid(days: days, color: Theme.green, cell: heat, onSelect: onSelectDay)
+                }
+                Text("绿 = 练了；“计划” = 安排了但没有训练记录。点一天看那天。").font(.caption).foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                SectionTitle(text: "每天", systemImage: "chart.bar")
+                HStack(spacing: Theme.Space.l) {
+                    DailyBarChart(title: "力量训练量（lb×次）", points: points(days) { $0.compactMap(\.volume).reduce(0, +) }, color: Theme.green)
+                    if summary.runKm > 0 {
+                        DailyBarChart(title: "跑步（km）", points: points(days) { $0.compactMap(\.distanceKm).reduce(0, +) },
+                                      color: Theme.blue, axisLabel: { String(format: "%.0f", $0) })
+                    }
+                }
+            }
+
+            if !summary.sessions.isEmpty {
+                VStack(alignment: .leading, spacing: Theme.Space.s) {
+                    SectionTitle(text: "这段时间的训练（\(summary.sessions.count) 次）", systemImage: "list.bullet")
+                    ForEach(summary.sessions.reversed()) { s in SessionRow(session: s) }
+                }
+            }
+        }
+    }
+
+    private func sessions(on d: Date) -> [HealthSession] {
+        model.health.sessions.filter { model.calendar.isDate($0.date, inSameDayAs: d) }
+    }
+
+    private func points(_ days: [Date], _ value: ([HealthSession]) -> Double) -> [DailyBarChart.Point] {
+        days.map { .init(day: $0, value: value(sessions(on: $0))) }
+    }
+
+    private func heat(_ d: Date) -> HeatCell {
+        let done = sessions(on: d)
+        if !done.isEmpty {
+            let text = done.map { $0.kind == .run ? "跑" : "练" }.joined()
+            return HeatCell(fraction: 1, text: text)
+        }
+        return model.training(on: d).isEmpty ? HeatCell() : HeatCell(fraction: nil, text: "计划")
+    }
+
+    /// 周视图一天一个小块：星期 + 练了 / 计划 / 休息
+    private func dayChip(_ d: Date) -> some View {
+        let cal = model.calendar
+        let done = sessions(on: d)
+        let plan = model.training(on: d)
+        let past = cal.startOfDay(for: d) < cal.startOfDay(for: model.clock)
+        let label = !done.isEmpty ? "练了" : (plan.isEmpty ? "休息" : (past ? "没练" : "计划"))
+        let icon = !done.isEmpty ? "checkmark.circle.fill" : (plan.isEmpty ? "moon" : "circle.dashed")
+        return Button { onSelectDay(d) } label: {
+            VStack(spacing: 4) {
+                Text(Fmt.string(d, "EEE")).font(.caption).foregroundStyle(.secondary)
+                Image(systemName: icon).font(.title3).foregroundStyle(done.isEmpty ? Color.secondary : Theme.green)
+                Text(label).font(.caption2).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 8)
+            .background(.quaternary.opacity(cal.isDate(d, inSameDayAs: model.clock) ? 0.9 : 0.4),
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.card))
+        }
+        .buttonStyle(.plain)
+    }
+}

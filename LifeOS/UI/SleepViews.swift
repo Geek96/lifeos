@@ -2,31 +2,49 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-// 休息睡眠与心理健康页：记一晚 + 睡了多久、几点睡几点起。只陈述，不打分、不评价、不提醒。
-// 心理健康的部分还没做（格式要先和用户商量），现在这页只有睡眠。
+// 休息与放松页：日（记一晚、那一晚睡了多久）/ 周、月（平均时长、平均几点睡几点起、每晚的睡眠时段、月历热力格）。
+// 只陈述，不打分、不评价、不提醒。
 
 struct RestView: View {
+    @Environment(AppModel.self) private var model
+    @AppStorage("restScale") private var scale = HealthPeriod.Scale.week.rawValue
+    @State private var anchor = Date()
+
     var body: some View {
-        HealthPageScaffold(title: "休息睡眠与心理健康") {
-            SleepEntryForm()
-            SleepPage()
+        let period = HealthPeriod(scale: HealthPeriod.Scale(rawValue: scale) ?? .week, anchor: anchor)
+        HealthPageScaffold(title: "休息与放松") {
+            HealthPeriodBar(period: Binding(get: { period }, set: { scale = $0.scale.rawValue; anchor = $0.anchor }))
+            switch period.scale {
+            case .day:
+                SleepEntryForm(day: $anchor)
+                RestDayPage(day: anchor)
+            case .week, .month:
+                SleepEntryForm(day: nil)
+                RestRangePage(period: period) { d in anchor = d; scale = HealthPeriod.Scale.day.rawValue }
+            }
         }
     }
 }
 
 /// 记一晚：起床那天 + 入睡 + 起床（可以只填一个）。选到已经记过的那天就带出原来的时间，再记一次是改。
+/// 在“日”里日期跟着页面走；在“周 / 月”里自己选，默认今天。
 struct SleepEntryForm: View {
     @Environment(AppModel.self) private var model
-    @State private var day = Date()
+    @State private var ownDay = Date()
     @State private var bedtime = ""
     @State private var wake = ""
+    private let external: Binding<Date>?
+
+    init(day: Binding<Date>?) { external = day }
+
+    private var day: Binding<Date> { external ?? $ownDay }
 
     var body: some View {
-        let existing = model.health.sleep(on: day, calendar: model.calendar)
+        let existing = model.health.sleep(on: day.wrappedValue, calendar: model.calendar)
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             SectionTitle(text: "记一晚", systemImage: "bed.double")
             HStack(spacing: Theme.Space.m) {
-                DatePicker("起床那天", selection: $day, in: ...model.clock, displayedComponents: .date)
+                DatePicker("起床那天", selection: day, in: ...model.clock, displayedComponents: .date)
                     .fixedSize()
                 TextField("入睡，比如 23:40", text: $bedtime)
                     .textFieldStyle(.roundedBorder).frame(width: 130)
@@ -39,81 +57,121 @@ struct SleepEntryForm: View {
                               && wake.trimmingCharacters(in: .whitespaces).isEmpty)
                 Spacer(minLength: 0)
             }
-            Text("日期写起床那天；只记得一个就只填一个。")
-                .font(.caption).foregroundStyle(.secondary)
+            Text("日期写起床那天；只记得一个就只填一个。").font(.caption).foregroundStyle(.secondary)
         }
         .padding(Theme.Space.l)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
         .onAppear(perform: fill)
-        .onChange(of: day) { fill() }
+        .onChange(of: day.wrappedValue) { fill() }
     }
 
     /// 这天已经记过：带出原来的时间
     private func fill() {
-        let n = model.health.sleep(on: day, calendar: model.calendar)
+        let n = model.health.sleep(on: day.wrappedValue, calendar: model.calendar)
         bedtime = n?.bedtime ?? ""
         wake = n?.wake ?? ""
     }
 
     private func save() {
-        if model.recordSleep(wakeDay: day, bedtime: bedtime, wake: wake) { fill() }
+        if model.recordSleep(wakeDay: day.wrappedValue, bedtime: bedtime, wake: wake) { fill() }
     }
 }
 
-struct SleepPage: View {
+/// 休息 · 日：那一晚
+struct RestDayPage: View {
     @Environment(AppModel.self) private var model
+    let day: Date
 
     var body: some View {
         let cal = model.calendar
-        let today = model.clock
-        let nights = model.health.sleep
-        VStack(alignment: .leading, spacing: Theme.Space.xl) {
-            if nights.isEmpty {
-                Text("还没有睡眠记录。在上面记一晚，或者跟 agent 说一句（比如“昨晚 1 点睡，今天 9 点起”），都会记到 健康/睡眠/。")
-                    .foregroundStyle(.secondary)
-            } else {
+        let night = model.health.sleep(on: day, calendar: cal)
+        let week = HealthPeriod(scale: .week, anchor: day)
+        let avg = model.health.sleepSummary(in: week.interval(calendar: cal)).averageMinutes
+        VStack(alignment: .leading, spacing: Theme.Space.l) {
+            if let night {
                 HStack(spacing: Theme.Space.m) {
-                    StatTile(title: "昨晚睡了", value: model.health.sleep(on: today, calendar: cal)?.minutes
-                        .map(HealthFormat.sleepText) ?? "—")
-                    StatTile(title: "近 7 天平均", value: model.health.averageSleep(days: 7, until: today, calendar: cal)
-                        .map(HealthFormat.sleepText) ?? "—")
-                    StatTile(title: "近 30 天平均", value: model.health.averageSleep(days: 30, until: today, calendar: cal)
-                        .map(HealthFormat.sleepText) ?? "—")
+                    StatTile(title: "睡了", value: night.minutes.map(HealthFormat.sleepText) ?? "—")
+                    StatTile(title: "入睡", value: night.bedtime ?? "—")
+                    StatTile(title: "起床", value: night.wake ?? "—")
+                    StatTile(title: "这周平均", value: avg.map(HealthFormat.sleepText) ?? "—")
                 }
+            } else {
+                Text("这天早上还没有睡眠记录。").foregroundStyle(.secondary)
+            }
+        }
+    }
+}
 
-                let recent = nights.filter { n in
-                    guard let start = cal.date(byAdding: .day, value: -13, to: cal.startOfDay(for: today)) else { return false }
-                    return n.date >= start && n.minutes != nil
-                }
-                if !recent.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        SectionTitle(text: "最近 14 晚", systemImage: "chart.bar")
-                        Chart(recent) { n in
-                            BarMark(x: .value("日期", n.date, unit: .day), y: .value("小时", (n.minutes ?? 0) / 60))
-                                .foregroundStyle(Theme.indigo.gradient)
-                        }
-                        .chartYAxis {
-                            AxisMarks { v in
-                                AxisGridLine()
-                                AxisValueLabel { if let h = v.as(Double.self) { Text("\(Int(h)) h") } }
-                            }
-                        }
-                        .chartXAxis {
-                            AxisMarks(values: .stride(by: .day, count: 2)) { _ in
-                                AxisValueLabel(format: .dateTime.month(.defaultDigits).day())
-                            }
-                        }
-                        .frame(height: 150)
-                    }
-                }
+/// 休息 · 周 / 月
+struct RestRangePage: View {
+    @Environment(AppModel.self) private var model
+    let period: HealthPeriod
+    let onSelectDay: (Date) -> Void
 
+    private struct Window: Identifiable {
+        var id: Date { day }
+        var day: Date
+        var bed: Double
+        var wake: Double
+    }
+
+    var body: some View {
+        let cal = model.calendar
+        let days = period.days(calendar: cal)
+        let summary = model.health.sleepSummary(in: period.interval(calendar: cal))
+        let windows: [Window] = summary.nights.compactMap { n in
+            guard let b = n.bedtime.flatMap(HealthSnapshot.bedtimeHour), let w = n.wake.flatMap(HealthSnapshot.wakeHour), w > b else { return nil }
+            return Window(day: n.date, bed: b, wake: w)
+        }
+        VStack(alignment: .leading, spacing: Theme.Space.xl) {
+            HStack(spacing: Theme.Space.m) {
+                StatTile(title: "平均睡了", value: summary.averageMinutes.map(HealthFormat.sleepText) ?? "—")
+                StatTile(title: "平均入睡", value: summary.averageBedtime ?? "—")
+                StatTile(title: "平均起床", value: summary.averageWake ?? "—")
+                StatTile(title: "记了", value: "\(summary.nights.count) / \(days.count) 晚")
+            }
+
+            if period.scale == .month {
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
-                    SectionTitle(text: "记录", systemImage: "moon.zzz")
+                    SectionTitle(text: "每晚睡了多久", systemImage: "square.grid.3x3")
+                    MonthHeatGrid(days: days, color: Theme.indigo, cell: heat, onSelect: onSelectDay)
+                    Text("颜色越深睡得越久（按 9 小时算满）；灰 = 没记。点一天看那天。").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            if !windows.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    SectionTitle(text: "几点睡、几点起", systemImage: "moon.zzz")
+                    Chart(windows) { w in
+                        BarMark(x: .value("日期", w.day, unit: .day), yStart: .value("入睡", w.bed), yEnd: .value("起床", w.wake))
+                            .foregroundStyle(Theme.indigo.gradient)
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                    }
+                    .chartYScale(domain: .automatic(includesZero: false, reversed: true))
+                    .chartYAxis {
+                        AxisMarks { v in
+                            AxisGridLine()
+                            AxisValueLabel { if let h = v.as(Double.self) { Text(String(format: "%02d:00", Int(h) % 24)) } }
+                        }
+                    }
+                    .chartXAxis { xAxis }
+                    .frame(height: 180)
+                    Text("每根柱子从入睡画到起床，越往下越晚。").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            DailyBarChart(title: "睡了多久（小时）", points: days.map { d in
+                .init(day: d, value: (model.health.sleep(on: d, calendar: cal)?.minutes ?? 0) / 60)
+            }, color: Theme.indigo, axisLabel: { "\(Int($0)) h" })
+
+            if !summary.nights.isEmpty {
+                VStack(alignment: .leading, spacing: Theme.Space.s) {
+                    SectionTitle(text: "记录", systemImage: "list.bullet")
                     Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 6) {
                         GridRow { Text("起床那天"); Text("入睡"); Text("起床"); Text("时长") }
                             .font(.caption).foregroundStyle(.secondary)
                         Divider().gridCellUnsizedAxes(.horizontal)
-                        ForEach(nights.reversed()) { n in
+                        ForEach(summary.nights.reversed()) { n in
                             GridRow {
                                 Text(Fmt.string(n.date, "M月d日 EEE")).foregroundStyle(.secondary)
                                 Text(n.bedtime ?? "—")
@@ -121,11 +179,27 @@ struct SleepPage: View {
                                 Text(n.minutes.map(HealthFormat.sleepText) ?? "—")
                             }
                             .monospacedDigit()
+                            .contentShape(Rectangle())
+                            .onTapGesture { onSelectDay(n.date) }
                         }
                     }
                     .font(.callout)
                 }
             }
         }
+    }
+
+    @AxisContentBuilder private var xAxis: some AxisContent {
+        if period.scale == .month {
+            AxisMarks(values: .stride(by: .day, count: 5)) { _ in AxisValueLabel(format: .dateTime.day()) }
+        } else {
+            AxisMarks(values: .stride(by: .day)) { _ in AxisValueLabel(format: .dateTime.weekday(.narrow)) }
+        }
+    }
+
+    private func heat(_ d: Date) -> HeatCell {
+        guard let n = model.health.sleep(on: d, calendar: model.calendar) else { return HeatCell() }
+        guard let m = n.minutes else { return HeatCell(fraction: nil, text: n.wake ?? n.bedtime) }
+        return HeatCell(fraction: m / 540, text: String(format: "%.1fh", m / 60))
     }
 }
