@@ -11,20 +11,28 @@ struct HealthPeriodBar: View {
 
     var body: some View {
         let cal = model.calendar
-        HStack(spacing: Theme.Space.m) {
+        HStack(spacing: Theme.Space.l) {
             TabStrip(tabs: HealthPeriod.Scale.allCases.map { ($0.rawValue, $0.label) }, selection: Binding(
                 get: { period.scale.rawValue },
-                set: { period.scale = HealthPeriod.Scale(rawValue: $0) ?? .day }))
-            HStack(spacing: 2) {
-                Button { period = period.stepped(-1, calendar: cal) } label: { Image(systemName: "chevron.left") }
-                    .help("往前")
+                set: { period.scale = HealthPeriod.Scale(rawValue: $0) ?? .day }), large: true)
+            HStack(spacing: Theme.Space.s) {
+                Button { period = period.stepped(-1, calendar: cal) } label: {
+                    Image(systemName: "chevron.left").frame(width: 22)
+                }
+                .help("往前")
+                .accessibilityLabel("往前")
                 Button("今天") { period.anchor = model.clock }
                     .disabled(period.contains(model.clock, calendar: cal))
-                Button { period = period.stepped(1, calendar: cal) } label: { Image(systemName: "chevron.right") }
-                    .help("往后")
+                Button { period = period.stepped(1, calendar: cal) } label: {
+                    Image(systemName: "chevron.right").frame(width: 22)
+                }
+                .help("往后")
+                .accessibilityLabel("往后")
             }
-            .buttonStyle(.borderless)
-            Text(Self.title(period, calendar: cal)).font(.headline).monospacedDigit()
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .font(.title3)
+            Text(Self.title(period, calendar: cal)).font(.title2.weight(.semibold)).monospacedDigit()
             Spacer(minLength: 0)
         }
     }

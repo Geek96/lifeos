@@ -447,6 +447,8 @@ struct ThingOccurrenceDetail: View {
 struct TabStrip: View {
     let tabs: [(id: String, label: String)]
     @Binding var selection: String
+    /// 大号：健康三页顶上的 日 / 周 / 月
+    var large = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -454,8 +456,8 @@ struct TabStrip: View {
                 let on = tab.id == selection
                 Button { selection = tab.id } label: {
                     Text(tab.label)
-                        .font(.callout.weight(on ? .semibold : .regular))
-                        .padding(.horizontal, 12).padding(.vertical, 5)
+                        .font((large ? Font.title3 : .callout).weight(on ? .semibold : .regular))
+                        .padding(.horizontal, large ? 20 : 12).padding(.vertical, large ? 8 : 5)
                         .background(on ? Color.accentColor.opacity(0.18) : .clear, in: Capsule())
                         .foregroundStyle(on ? Color.accentColor : .primary)
                         .contentShape(Capsule())
