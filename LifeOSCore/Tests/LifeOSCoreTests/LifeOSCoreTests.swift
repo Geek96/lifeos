@@ -288,6 +288,89 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
         #expect(Nutrition.average([]) == nil)
     }
 
+    @Test func recipesShoppingAndPrep() throws {
+        let text = """
+        ---
+        type: recipe
+        name: 孜然猪肉土豆卷
+        meal: 备餐
+        batch: 8
+        kcal: 850
+        protein: 34
+        carbs: 80
+        fat: 38
+        sodium: 650
+        ---
+        # 孜然猪肉土豆卷
+
+        ## 材料
+        | 材料 | 一份用量 | 在哪买 |
+        |---|---|---|
+        | 卷饼皮 | 1 张 | 超市 |
+        | 猪绞肉 | 1/4 包（4 oz） | Weee |
+        | 土豆 | 100 g | 超市 |
+        | 孜然粉 | 适量 | 家里有 |
+        | 青椒 | 适量 | 超市 |
+
+        ## 做法
+        1. 米饭晾凉
+        2、肉先炒
+
+        ## 变化
+        换成鸡肉碎更瘦。
+        """
+        let url = URL(fileURLWithPath: "/tmp/食谱/孜然猪肉土豆卷.md")
+        let r = try #require(HealthStore.parseRecipe(text, url: url))
+        #expect(r.name == "孜然猪肉土豆卷" && r.meal == "备餐" && r.batch == 8)
+        #expect(r.nutrition?.kcal == 850 && r.nutrition?.micros["sodium"] == 650)
+        #expect(r.ingredients.count == 5 && r.ingredients[1].quantity?.value == 0.25 && r.ingredients[1].quantity?.unit == "包")
+        #expect(r.steps == ["米饭晾凉", "肉先炒"] && r.notes.contains("鸡肉碎"))
+        #expect(HealthStore.parseRecipe("---\ntype: note\n---\n", url: url) == nil)
+
+        var other = r
+        other.name = "西红柿炒蛋卷"
+        other.ingredients = [Ingredient(name: "土豆", amount: "50 g", store: "超市"), Ingredient(name: "鸡蛋", amount: "2 个", store: "超市")]
+        let items = ShoppingList.items(for: [(r, 4), (other, 2)])
+        #expect(items.map(\.text).contains("土豆 500 g（孜然猪肉土豆卷 ×4、西红柿炒蛋卷 ×2）"))
+        #expect(items.map(\.text).contains("猪绞肉 1 包（孜然猪肉土豆卷 ×4）"))
+        #expect(items.map(\.text).contains("青椒 适量（孜然猪肉土豆卷 ×4）"))
+        #expect(!items.contains { $0.text.hasPrefix("孜然粉") })
+        #expect(Set(items.map(\.store)) == ["超市", "Weee"])
+
+        var list = ShoppingList.adding(items, to: nil)
+        list = ShoppingList.adding([ShoppingItem(store: "Amazon", text: "链条油", done: false)] + items, to: list)
+        var parsed = ShoppingList.parse(list)
+        #expect(parsed.count == items.count + 1)
+        list = ShoppingList.toggling(parsed.first { $0.text.hasPrefix("土豆") }!, in: list)
+        parsed = ShoppingList.parse(list)
+        #expect(parsed.first { $0.text.hasPrefix("土豆") }?.done == true)
+        list = ShoppingList.clearingDone(list)
+        parsed = ShoppingList.parse(list)
+        #expect(!parsed.contains { $0.text.hasPrefix("土豆") } && parsed.contains { $0.store == "Amazon" })
+        // 段清空了标题也删
+        for i in parsed where i.store == "Weee" { list = ShoppingList.toggling(i, in: list) }
+        #expect(!ShoppingList.clearingDone(list).contains("## Weee"))
+
+        let fridge = PrepBatch(made: d("2026-11-01"), name: "孜然猪肉土豆卷", count: 4, left: 4, place: "冷藏",
+                               useBy: PrepBatch.defaultUseBy(made: d("2026-11-01"), place: "冷藏", calendar: cal))
+        var freezer = fridge
+        freezer.place = "冷冻"
+        freezer.useBy = PrepBatch.defaultUseBy(made: d("2026-11-01"), place: "冷冻", calendar: cal)
+        var prep = MealPrep.adding(fridge, to: nil, calendar: cal)
+        prep = MealPrep.adding(freezer, to: prep, calendar: cal)
+        var batches = MealPrep.parse(prep, calendar: cal)
+        #expect(batches.count == 2 && batches[0].useBy == d("2026-11-04") && batches[1].useBy == d("2026-12-31"))
+        prep = MealPrep.settingLeft(batches[0], to: 3, in: prep, calendar: cal)
+        batches = MealPrep.parse(prep, calendar: cal)
+        #expect(batches[0].left == 3 && batches[1].left == 4)
+
+        // 吃一份：按表头把营养填进饮食表
+        let row = HealthStore.mealRow(header: HealthStore.tableColumns, time: "12:30", text: "孜然猪肉土豆卷 ×1", nutrition: r.nutrition)
+        #expect(row == "| 12:30 | 孜然猪肉土豆卷 ×1 | 850 | 34 | 80 | 38 | 650 |  |  |  |  |  |  |  |")
+        #expect(HealthStore.parseMeals("| 时间 | 吃了什么 | 热量 | 蛋白质 | 碳水 | 脂肪 | 钠 |\n|---|---|---|---|---|---|---|\n" + row)
+            .first?.nutrition?.micros["sodium"] == 650)
+    }
+
     @Test func cumulativeMonthSpending() {
         func e(_ day: String, _ amount: Double, _ kind: LedgerEntry.Kind = .expense) -> LedgerEntry {
             LedgerEntry(id: day + "\(amount)", date: d(day), text: "", category: "吃", amount: amount, kind: kind, account: "")

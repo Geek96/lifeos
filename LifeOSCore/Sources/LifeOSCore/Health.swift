@@ -1,7 +1,8 @@
 import Foundation
 
 // 健康插件：数据都在 vault 的 `健康/` 下，由 agent 写、App 读；
-// App 会写的只有：在饮食表里追加一行“还没估算”的记录，和在睡眠表里记一晚（Sleep.swift）。
+// App 会写的只有：在饮食表里追加一行（还没估算的，或吃了一份备好的食谱）、睡眠记一晚、体重记一次、
+// 购物清单和备餐（Recipes.swift）。
 
 /// 热量与三大营养素（克）
 public struct Nutrition: Equatable, Sendable {
@@ -142,6 +143,12 @@ public struct HealthSnapshot: Equatable, Sendable {
     public var weights: [WeightEntry] = []
     /// 体重目标（`健康/目标.md` 的 weight_gain_min / max）
     public var weightPlan: WeightPlan? = nil
+    /// 食谱（`健康/食谱/`）
+    public var recipes: [Recipe] = []
+    /// 购物清单（`健康/购物清单.md`）
+    public var shopping: [ShoppingItem] = []
+    /// 备餐（`健康/备餐.md`）
+    public var prep: [PrepBatch] = []
 
     public static let empty = HealthSnapshot(targets: nil, days: [], tests: [])
 
@@ -187,7 +194,8 @@ public struct HealthStore: Sendable {
                        targetHistory: loadTargetHistory(calendar: calendar), tests: loadTests(calendar: calendar),
                        body: loadBody(calendar: calendar), sessions: loadSessions(calendar: calendar),
                        exercises: loadExercises(calendar: calendar), plan: loadWeekPlan(), sleep: loadSleep(calendar: calendar),
-                       weights: loadWeights(calendar: calendar), weightPlan: loadWeightPlan(calendar: calendar))
+                       weights: loadWeights(calendar: calendar), weightPlan: loadWeightPlan(calendar: calendar),
+                       recipes: loadRecipes(), shopping: loadShopping(), prep: loadPrep(calendar: calendar))
     }
 
     // MARK: - 目标
@@ -260,32 +268,59 @@ public struct HealthStore: Sendable {
         }
     }
 
-    /// 在那天的饮食表里追加一行还没估算的记录；文件不存在就新建。返回改动前的内容（撤销用，新建时为 nil）。
+    /// 在那天的饮食表里追加一行；文件不存在就新建。返回改动前的内容（撤销用，新建时为 nil）。
     /// `time` 不给就用 `date` 的时分（补记以前的日子时传“补记”）。
+    /// `nutrition` 不给 = 还没估算（数字留空等 agent）；给了（比如吃了一份备好的食谱）就按表头把数字填进对应的列。
     @discardableResult
-    public func appendMeal(_ text: String, at date: Date, time: String? = nil, calendar: Calendar = .current) throws -> String? {
+    public func appendMeal(_ text: String, at date: Date, time: String? = nil, nutrition: Nutrition? = nil,
+                           calendar: Calendar = .current) throws -> String? {
         let clean = text.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "|", with: "/")
             .trimmingCharacters(in: .whitespaces)
         guard !clean.isEmpty else { return nil }
         let url = dietURL(date, calendar: calendar)
         let time = time ?? Self.timeFormatter(calendar).string(from: date)
-        let row = "| \(time) | \(clean) |" + String(repeating: "  |", count: 4 + Self.defaultMicroColumns.count)
         let fm = FileManager.default
         guard let before = try? String(contentsOf: url, encoding: .utf8) else {
+            let row = Self.mealRow(header: Self.tableColumns, time: time, text: clean, nutrition: nutrition)
             try fm.createDirectory(at: dietDir, withIntermediateDirectories: true)
             try Self.newDayFile(date, calendar: calendar, firstRow: row).write(to: url, atomically: true, encoding: .utf8)
             return nil
         }
+        let header = before.components(separatedBy: "\n").first { $0.hasPrefix("|") && $0.contains("吃了什么") }
+            .map(MarkdownTable.cells) ?? Self.tableColumns
+        let row = Self.mealRow(header: header, time: time, text: clean, nutrition: nutrition)
         try Self.insertRow(row, into: before).write(to: url, atomically: true, encoding: .utf8)
         return before
+    }
+
+    /// 按表头拼一行：时间、吃了什么、热量、三大营养素、表头里有的微量营养；没有的列留空
+    static func mealRow(header: [String], time: String, text: String, nutrition: Nutrition?) -> String {
+        func fmt(_ v: Double?) -> String {
+            guard let v else { return "" }
+            return v == v.rounded() ? "\(Int(v))" : String(format: "%.1f", v)
+        }
+        let cells: [String] = header.map { h in
+            let t = h.trimmingCharacters(in: .whitespaces)
+            if t.hasPrefix("时间") { return time }
+            if t.hasPrefix("吃了什么") { return text }
+            guard let n = nutrition else { return "" }
+            if t.hasPrefix("热量") { return fmt(n.kcal) }
+            if t.hasPrefix("蛋白质") { return fmt(n.protein) }
+            if t.hasPrefix("碳水") { return fmt(n.carbs) }
+            if t.hasPrefix("脂肪") { return fmt(n.fat) }
+            if let m = Micronutrient.forHeader(t) { return fmt(n.micros[m.key]) }
+            return ""
+        }
+        return "| " + cells.joined(separator: " | ") + " |"
     }
 
     /// 新建饮食表默认带的微量营养列
     static let defaultMicroColumns = ["钠", "添加糖", "纤维", "钾", "钙", "铁", "维C", "维D"]
 
+    static let tableColumns = ["时间", "吃了什么", "热量", "蛋白质", "碳水", "脂肪"] + defaultMicroColumns
+
     static let tableHeader: String = {
-        let cols = ["时间", "吃了什么", "热量", "蛋白质", "碳水", "脂肪"] + defaultMicroColumns
-        return "| " + cols.joined(separator: " | ") + " |\n|" + String(repeating: "---|", count: cols.count)
+        "| " + tableColumns.joined(separator: " | ") + " |\n|" + String(repeating: "---|", count: tableColumns.count)
     }()
 
     static func newDayFile(_ date: Date, calendar: Calendar, firstRow: String) -> String {

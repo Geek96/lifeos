@@ -3,26 +3,50 @@ import Charts
 import LifeOSCore
 
 // 营养页：日（圆环、记一顿 / 补记、吃了什么、微量营养）/ 周、月（记了几天、平均对照当时的目标、按天的图、月历热力格），
-// 下面是体重（记体重、趋势、对照增肌目标的范围）。
+// 下面是体重（记体重、趋势、对照增肌目标的范围）。另有 食谱 / 购物清单 / 备餐 三个分页（RecipeViews.swift）。
 // 只陈述数字，不打分、不评价。
 
 struct NutritionView: View {
     @Environment(AppModel.self) private var model
+    @AppStorage("nutritionTab") private var tab = NutritionTab.records.rawValue
     @AppStorage("nutritionScale") private var scale = HealthPeriod.Scale.day.rawValue
     @State private var anchor = Date()
 
+    enum NutritionTab: String, CaseIterable, Identifiable {
+        case records, recipes, shopping, prep
+        var id: String { rawValue }
+        var label: String {
+            switch self { case .records: "记录"; case .recipes: "食谱"; case .shopping: "购物清单"; case .prep: "备餐" }
+        }
+    }
+
     var body: some View {
         let period = HealthPeriod(scale: HealthPeriod.Scale(rawValue: scale) ?? .day, anchor: anchor)
+        let left = model.health.shopping.filter { !$0.done }.count
+        let prepLeft = model.health.prep.map(\.left).reduce(0, +)
         HealthPageScaffold(title: "营养") {
-            HealthPeriodBar(period: Binding(get: { period }, set: { scale = $0.scale.rawValue; anchor = $0.anchor }))
-            switch period.scale {
-            case .day: NutritionDayPage(day: anchor)
-            case .week, .month:
-                NutritionRangePage(period: period) { d in anchor = d; scale = HealthPeriod.Scale.day.rawValue }
+            TabStrip(tabs: NutritionTab.allCases.map { t in
+                switch t {
+                case .shopping where left > 0: (t.rawValue, "\(t.label) \(left)")
+                case .prep where prepLeft > 0: (t.rawValue, "\(t.label) \(prepLeft)")
+                default: (t.rawValue, t.label)
+                }
+            }, selection: $tab)
+            switch NutritionTab(rawValue: tab) ?? .records {
+            case .records:
+                HealthPeriodBar(period: Binding(get: { period }, set: { scale = $0.scale.rawValue; anchor = $0.anchor }))
+                switch period.scale {
+                case .day: NutritionDayPage(day: anchor)
+                case .week, .month:
+                    NutritionRangePage(period: period) { d in anchor = d; scale = HealthPeriod.Scale.day.rawValue }
+                }
+                Divider()
+                // 在“日”里记到正在看的那天，周 / 月里默认今天
+                WeightSection(day: period.scale == .day ? anchor : model.clock)
+            case .recipes: RecipesPage()
+            case .shopping: ShoppingPage()
+            case .prep: PrepPage()
             }
-            Divider()
-            // 在“日”里记到正在看的那天，周 / 月里默认今天
-            WeightSection(day: period.scale == .day ? anchor : model.clock)
         }
     }
 }
@@ -54,6 +78,14 @@ struct NutritionDayPage: View {
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
                     MealLogField(day: day)
                     PendingMealsHint(count: diet.pendingCount)
+                }
+            }
+
+            let prep = model.health.prep.filter { $0.left > 0 }.sorted { ($0.useBy ?? .distantFuture) < ($1.useBy ?? .distantFuture) }
+            if cal.isDate(day, inSameDayAs: model.clock), !prep.isEmpty {
+                VStack(alignment: .leading, spacing: Theme.Space.s) {
+                    SectionTitle(text: "备好的饭", systemImage: "shippingbox")
+                    ForEach(prep) { b in PrepRow(batch: b, compact: true) }
                 }
             }
 

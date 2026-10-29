@@ -18,7 +18,7 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   出行插件勾“要带”清单；物品插件快速记一件东西（新建只有名称和位置的卡）、往 `物品/想买.md` 加一行；远景插件勾项目步骤；分享的长图和 .ics 存到用户的“下载”）。
   事项正文（准备信息）由 agent 写。**永远不写 CourseOS 学期目录里的任何文件。**
 - vault 格式与 agent 规则：vault 里的 `.lifeos/RULES.md`；agent skill：[Geek96/life-manager](https://github.com/Geek96/life-manager)。
-- `templates/vault/` 是新 vault 的模板（RULES.md 第 10 版、入口文件、收件箱、lifeos.json 示例）。
+- `templates/vault/` 是新 vault 的模板（RULES.md 第 11 版、入口文件、收件箱、lifeos.json 示例）。
 
 ## 插件
 
@@ -31,6 +31,8 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   休息与放松（`SleepViews.swift` 的 `RestView`：记一晚、`sleepSummary` 平均几点睡几点起、睡眠时段图）；三页共用 `HealthPageScaffold`，`AppModel.Page.isHealth` 判断是不是这三页。
   营养页最下面是体重（`WeightSection`；`LifeOSCore/Weight.swift` 读写 `健康/体重.md`，目标范围来自 `目标.md` 的 `weight_gain_min/max`）；
   休息与放松的周 / 月有 `SleepContextSection`：训练（训练记录）和考试（`AppModel.examDays`，不受图层开关影响）标在时间轴上，`SleepComparison` 分开平均。
+  营养页分页 记录 / 食谱 / 购物清单 / 备餐（`RecipeViews.swift`；`LifeOSCore/Recipes.swift`：`Recipe` 读 `健康/食谱/`，
+  `ShoppingList` 按食谱和份数合并材料、读写 `购物清单.md`，`MealPrep` 读写 `备餐.md`；“吃了一个”用 `appendMeal(nutrition:)` 按表头填营养）。
   新加 UI 文件后要重新跑 `xcodegen generate`（`.xcodeproj` 不进 git）。
   每天的目标按 `HealthSnapshot.targets(on:)` 取（`健康/目标历史/` + `目标.md` 的 `since`）；平均只用 `completeDays`（饮食文件 `complete`，没写时过去算记全、今天不算）。
   睡眠：`LifeOSCore/Sleep.swift` 解析 `健康/睡眠/YYYY-MM.md`（表 `| 日期 | 入睡 | 起床 | 时长 |`，日期是起床那天，没写时长就按入睡、起床算，跨午夜照算）；

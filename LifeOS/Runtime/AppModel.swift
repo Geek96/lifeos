@@ -3,7 +3,7 @@ import AppKit
 import LifeOSCore
 
 /// 编排：载入 vault + CourseOS 快照、生成日历上的出现、处理用户操作。
-/// 只写 LifeOS vault（事项时间/状态字段、新建事项、收件箱、健康插件的饮食表追加一行、睡眠表记一晚、体重表记一次）和 lifeos.json；CourseOS 只读。
+/// 只写 LifeOS vault（事项时间/状态字段、新建事项、收件箱、健康插件的饮食表追加一行、睡眠表记一晚、体重表记一次、购物清单、备餐）和 lifeos.json；CourseOS 只读。
 @Observable
 @MainActor
 final class AppModel {
@@ -408,6 +408,88 @@ final class AppModel {
         UserDefaults.standard.set("plan", forKey: "fitnessTab")
         openExerciseID = ex.id
         page = .fitness
+    }
+
+    // MARK: 食谱、购物清单、备餐
+
+    /// 改一个健康文件：写入新内容、重新载入、提示，撤销 = 还原（原来没有就移到废纸篓）
+    private func rewriteHealthFile(_ url: URL, message: String, change: (String?) -> String) {
+        let before = try? String(contentsOf: url, encoding: .utf8)
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try change(before).write(to: url, atomically: true, encoding: .utf8)
+            reload()
+            feedback.show(message, undo: { [weak self] in
+                if let before { try? before.write(to: url, atomically: true, encoding: .utf8) }
+                else { try? FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+                self?.reload()
+            })
+        } catch {
+            feedback.show("没能写入：\(error.localizedDescription)")
+        }
+    }
+
+    /// 选几个食谱、各做几份，把要买的加进购物清单
+    func addToShopping(_ picks: [(recipe: Recipe, servings: Int)]) {
+        guard let root = vaultRoot else { return }
+        let items = ShoppingList.items(for: picks)
+        guard !items.isEmpty else { feedback.show("这些食谱的材料家里都有"); return }
+        rewriteHealthFile(HealthStore(vault: root).shoppingURL, message: "已加进购物清单（\(items.count) 样）") {
+            ShoppingList.adding(items, to: $0)
+        }
+    }
+
+    func toggleShopping(_ item: ShoppingItem) {
+        guard let root = vaultRoot else { return }
+        let url = HealthStore(vault: root).shoppingURL
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        try? ShoppingList.toggling(item, in: text).write(to: url, atomically: true, encoding: .utf8)
+        reload()
+    }
+
+    func clearShoppingDone() {
+        guard let root = vaultRoot else { return }
+        rewriteHealthFile(HealthStore(vault: root).shoppingURL, message: "已清掉买好的") { ShoppingList.clearingDone($0 ?? "") }
+    }
+
+    /// 记一批备餐：冷藏几个、冷冻几个（各一行）
+    func recordPrep(name: String, made: Date, fridge: Int, freezer: Int) {
+        guard let root = vaultRoot, fridge + freezer > 0 else { return }
+        rewriteHealthFile(HealthStore(vault: root).prepURL, message: "已记下：\(name) \(fridge + freezer) 个") { text in
+            var out = text
+            for (place, n) in [("冷藏", fridge), ("冷冻", freezer)] where n > 0 {
+                let b = PrepBatch(made: calendar.startOfDay(for: made), name: name, count: n, left: n, place: place,
+                                  useBy: PrepBatch.defaultUseBy(made: made, place: place, calendar: calendar))
+                out = MealPrep.adding(b, to: out, calendar: calendar)
+            }
+            return out ?? ""
+        }
+    }
+
+    /// 吃了一个：还剩 −1，并按同名食谱的每份营养在今天的饮食表记一行（找不到食谱就记成待估算）。两处一起撤销
+    func eatPrep(_ batch: PrepBatch) {
+        guard let root = vaultRoot, batch.left > 0 else { return }
+        let store = HealthStore(vault: root)
+        let prepURL = store.prepURL, dietURL = store.dietURL(Date(), calendar: calendar)
+        let prepBefore = try? String(contentsOf: prepURL, encoding: .utf8)
+        let dietBefore = try? String(contentsOf: dietURL, encoding: .utf8)
+        guard let prepText = prepBefore else { return }
+        let recipe = health.recipes.first { $0.name == batch.name }
+        do {
+            try MealPrep.settingLeft(batch, to: batch.left - 1, in: prepText, calendar: calendar)
+                .write(to: prepURL, atomically: true, encoding: .utf8)
+            try store.appendMeal("\(batch.name) ×1（备餐）", at: Date(), nutrition: recipe?.nutrition, calendar: calendar)
+            reload()
+            feedback.show(recipe?.nutrition == nil ? "已记下，还剩 \(batch.left - 1) 个（营养等 agent 估算）" : "已记下，还剩 \(batch.left - 1) 个",
+                          undo: { [weak self] in
+                try? prepText.write(to: prepURL, atomically: true, encoding: .utf8)
+                if let dietBefore { try? dietBefore.write(to: dietURL, atomically: true, encoding: .utf8) }
+                else { try? FileManager.default.trashItem(at: dietURL, resultingItemURL: nil) }
+                self?.reload()
+            })
+        } catch {
+            feedback.show("没能记下：\(error.localizedDescription)")
+        }
     }
 
     /// 记一次体重（“145”“65.8 kg”）；同一天再记就替换。可撤销
