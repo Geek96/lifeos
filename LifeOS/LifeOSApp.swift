@@ -19,6 +19,8 @@ struct LifeOSApp: App {
                 .task { model.boot() }
         }
         .defaultSize(width: 1240, height: 800)
+        // 窗口不能拖得比 MainView 的最小宽高还小（否则三栏会互相挤压）
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("关于 LifeOS") { AboutPanel.show() }

@@ -5,6 +5,11 @@ import LifeOSCore
 struct MainView: View {
     @Environment(AppModel.self) private var model
 
+    /// 中间内容区最窄多少：再窄健康页的图表、今天页的卡片就会把左栏挤扁
+    static let detailMinWidth: CGFloat = 560
+    /// 窗口最窄 = 左栏 220 + 中间 560 + 右栏 280 + 分隔线，三栏都开着也不挤
+    static let windowMinWidth: CGFloat = 1100
+
     var body: some View {
         @Bindable var model = model
         NavigationSplitView {
@@ -12,6 +17,7 @@ struct MainView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
         } detail: {
             ContentView()
+                .frame(minWidth: Self.detailMinWidth)
                 .toolbar {
                     ToolbarItemGroup(placement: .navigation) {
                         if model.page == .week || model.page == .month || model.page == .today {
@@ -61,7 +67,7 @@ struct MainView: View {
             ItemEditorSheet(request: request)
                 .environment(model)
         }
-        .frame(minWidth: 960, minHeight: 620)
+        .frame(minWidth: Self.windowMinWidth, minHeight: 700)
     }
 }
 
