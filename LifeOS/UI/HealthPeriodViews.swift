@@ -10,8 +10,23 @@ struct HealthPeriodBar: View {
     @Binding var period: HealthPeriod
 
     var body: some View {
+        // 窗口窄（两边栏都开着）时日期换到第二行，不把内容区撑宽、挤扁左栏
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Theme.Space.l) {
+                controls
+                title
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                controls
+                title
+            }
+        }
+    }
+
+    private var controls: some View {
         let cal = model.calendar
-        HStack(spacing: Theme.Space.l) {
+        return HStack(spacing: Theme.Space.l) {
             TabStrip(tabs: HealthPeriod.Scale.allCases.map { ($0.rawValue, $0.label) }, selection: Binding(
                 get: { period.scale.rawValue },
                 set: { period.scale = HealthPeriod.Scale(rawValue: $0) ?? .day }), large: true)
@@ -32,9 +47,13 @@ struct HealthPeriodBar: View {
             .buttonStyle(.bordered)
             .controlSize(.large)
             .font(.title3)
-            Text(Self.title(period, calendar: cal)).font(.title2.weight(.semibold)).monospacedDigit()
-            Spacer(minLength: 0)
         }
+        .fixedSize()
+    }
+
+    private var title: some View {
+        Text(Self.title(period, calendar: model.calendar)).font(.title2.weight(.semibold)).monospacedDigit()
+            .fixedSize()
     }
 
     static func title(_ p: HealthPeriod, calendar: Calendar) -> String {
@@ -44,6 +63,18 @@ struct HealthPeriodBar: View {
         case .day: return Fmt.string(first, "yyyy年M月d日 EEE")
         case .week: return Fmt.shortDay(first) + " – " + Fmt.shortDay(last)
         case .month: return Fmt.string(first, "yyyy年M月")
+        }
+    }
+}
+
+/// 一排数字卡片：放得下就一行，窄了自动折成两行（不把内容区撑宽）
+struct StatRow<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: Theme.Space.m)], alignment: .leading,
+                  spacing: Theme.Space.m) {
+            content
         }
     }
 }
@@ -102,6 +133,9 @@ struct DailyBarChart: View {
         var faded = false
     }
 
+    /// 目标线的颜色：和三页用到的柱子颜色（橙、绿、蓝、靛）都不撞
+    static let goalColor = Theme.red
+
     let title: String
     let points: [Point]
     let color: Color
@@ -118,11 +152,21 @@ struct DailyBarChart: View {
                     BarMark(x: .value("日期", p.day, unit: .day), y: .value(title, p.value))
                         .foregroundStyle(color.opacity(p.faded ? 0.35 : 1).gradient)
                 }
-                ForEach(points.filter { $0.goal != nil }) { p in
+                // 目标：红色粗虚线，线尾标“目标 2800”，和柱子一眼分开
+                let goals = points.filter { $0.goal != nil }
+                ForEach(goals) { p in
                     LineMark(x: .value("日期", p.day, unit: .day), y: .value("目标", p.goal ?? 0), series: .value("线", "目标"))
                         .interpolationMethod(.stepCenter)
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                        .foregroundStyle(.secondary)
+                        .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, dash: [6, 4]))
+                        .foregroundStyle(Self.goalColor)
+                }
+                if let last = goals.last, let g = last.goal {
+                    PointMark(x: .value("日期", last.day, unit: .day), y: .value("目标", g))
+                        .symbolSize(30)
+                        .foregroundStyle(Self.goalColor)
+                        .annotation(position: .top, alignment: .trailing, spacing: 2) {
+                            Text("目标 \(axisLabel(g))").font(.caption2.weight(.semibold)).foregroundStyle(Self.goalColor)
+                        }
                 }
             }
             .chartYAxis {

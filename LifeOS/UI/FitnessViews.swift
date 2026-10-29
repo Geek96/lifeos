@@ -714,7 +714,7 @@ struct FitnessDayPage: View {
         let future = cal.startOfDay(for: day) > cal.startOfDay(for: model.clock)
         VStack(alignment: .leading, spacing: Theme.Space.xl) {
             if !summary.sessions.isEmpty {
-                HStack(spacing: Theme.Space.m) {
+                StatRow {
                     StatTile(title: "训练", value: "\(summary.sessions.count) 次")
                     StatTile(title: "训练量", value: summary.volume > 0 ? "\(Int(summary.volume)) lb×次" : "—")
                     StatTile(title: "跑步", value: summary.runKm > 0 ? String(format: "%.1f km", summary.runKm) : "—")
@@ -785,7 +785,7 @@ struct FitnessRangePage: View {
         let summary = model.health.fitnessSummary(in: period.interval(calendar: cal), calendar: cal)
         let planned = days.filter { !model.training(on: $0).isEmpty }.count
         VStack(alignment: .leading, spacing: Theme.Space.xl) {
-            HStack(spacing: Theme.Space.m) {
+            StatRow {
                 StatTile(title: "训练", value: "\(summary.sessions.count) 次")
                 StatTile(title: "练了", value: "\(summary.activeDays) / \(planned) 天（计划）")
                 StatTile(title: "跑步", value: String(format: "%.1f km", summary.runKm))

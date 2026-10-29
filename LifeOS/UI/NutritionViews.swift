@@ -90,7 +90,7 @@ struct NutritionRangePage: View {
         let summary = model.health.nutritionSummary(days, today: model.clock, calendar: cal)
         let monthly = period.scale == .month
         VStack(alignment: .leading, spacing: Theme.Space.xl) {
-            HStack(spacing: Theme.Space.m) {
+            StatRow {
                 StatTile(title: "记了", value: "\(summary.loggedDays) / \(days.count) 天")
                 StatTile(title: "记全的", value: "\(summary.completeDays.count) 天")
                 StatTile(title: "平均热量", value: pair(summary.average?.kcal, summary.averageTarget?.kcal, ""))
@@ -118,7 +118,7 @@ struct NutritionRangePage: View {
                         DailyBarChart(title: "碳水（g）", points: points(days, \.carbs), color: NutritionRings.carbsColor)
                     }
                 }
-                Text("浅色 = 只记了一部分或那天还没吃完；虚线 = 那天当时的目标。").font(.caption).foregroundStyle(.secondary)
+                Text("浅色 = 只记了一部分或那天还没吃完；红色虚线 = 那天当时的目标。").font(.caption).foregroundStyle(.secondary)
             }
 
             if let avg = summary.average, let target = summary.averageTarget, !target.micros.isEmpty {

@@ -34,15 +34,20 @@ struct MainView: View {
                             model.newItem(kind: .event)
                         }
                         .help("新建约定（⌘N）；点箭头选期限或时间窗")
-                        Button {
-                            model.showInspector.toggle()
-                        } label: {
-                            Label(model.showInspector ? "隐藏检查器" : "显示检查器", systemImage: "sidebar.trailing")
+                        if model.page?.isHealth != true || model.selected != nil {
+                            Button {
+                                model.showInspector.toggle()
+                            } label: {
+                                Label(model.showInspector ? "隐藏检查器" : "显示检查器", systemImage: "sidebar.trailing")
+                            }
+                            .help("显示或隐藏右栏（⌥⌘I）")
                         }
-                        .help("显示或隐藏右栏（⌥⌘I）")
                     }
                 }
-                .inspector(isPresented: $model.showInspector) {
+                // 健康三页没选中东西时收起右栏，把宽度让给图表（点了训练事项照常打开）
+                .inspector(isPresented: Binding(
+                    get: { model.showInspector && (model.page?.isHealth != true || model.selected != nil) },
+                    set: { model.showInspector = $0 })) {
                     InspectorView()
                         .inspectorColumnWidth(min: 280, ideal: 310, max: 360)
                 }

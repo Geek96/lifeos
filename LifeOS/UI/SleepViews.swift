@@ -40,22 +40,19 @@ struct SleepEntryForm: View {
     private var day: Binding<Date> { external ?? $ownDay }
 
     var body: some View {
-        let existing = model.health.sleep(on: day.wrappedValue, calendar: model.calendar)
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             SectionTitle(text: "记一晚", systemImage: "bed.double")
-            HStack(spacing: Theme.Space.m) {
-                DatePicker("起床那天", selection: day, in: ...model.clock, displayedComponents: .date)
-                    .fixedSize()
-                TextField("入睡，比如 23:40", text: $bedtime)
-                    .textFieldStyle(.roundedBorder).frame(width: 130)
-                    .onSubmit(save)
-                TextField("起床，比如 07:30", text: $wake)
-                    .textFieldStyle(.roundedBorder).frame(width: 130)
-                    .onSubmit(save)
-                Button(existing == nil ? "记下" : "更新", action: save)
-                    .disabled(bedtime.trimmingCharacters(in: .whitespaces).isEmpty
-                              && wake.trimmingCharacters(in: .whitespaces).isEmpty)
-                Spacer(minLength: 0)
+            // 窄了就把日期和两个时间分成两行
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Theme.Space.m) {
+                    datePicker
+                    fields
+                    Spacer(minLength: 0)
+                }
+                VStack(alignment: .leading, spacing: Theme.Space.s) {
+                    datePicker
+                    fields
+                }
             }
             Text("日期写起床那天；只记得一个就只填一个。").font(.caption).foregroundStyle(.secondary)
         }
@@ -63,6 +60,27 @@ struct SleepEntryForm: View {
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.Radius.card))
         .onAppear(perform: fill)
         .onChange(of: day.wrappedValue) { fill() }
+    }
+
+    private var datePicker: some View {
+        DatePicker("起床那天", selection: day, in: ...model.clock, displayedComponents: .date)
+            .fixedSize()
+    }
+
+    private var fields: some View {
+        let existing = model.health.sleep(on: day.wrappedValue, calendar: model.calendar)
+        return HStack(spacing: Theme.Space.m) {
+            TextField("入睡，比如 23:40", text: $bedtime)
+                .textFieldStyle(.roundedBorder).frame(width: 130)
+                .onSubmit(save)
+            TextField("起床，比如 07:30", text: $wake)
+                .textFieldStyle(.roundedBorder).frame(width: 130)
+                .onSubmit(save)
+            Button(existing == nil ? "记下" : "更新", action: save)
+                .disabled(bedtime.trimmingCharacters(in: .whitespaces).isEmpty
+                          && wake.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+        .fixedSize()
     }
 
     /// 这天已经记过：带出原来的时间
@@ -89,7 +107,7 @@ struct RestDayPage: View {
         let avg = model.health.sleepSummary(in: week.interval(calendar: cal)).averageMinutes
         VStack(alignment: .leading, spacing: Theme.Space.l) {
             if let night {
-                HStack(spacing: Theme.Space.m) {
+                StatRow {
                     StatTile(title: "睡了", value: night.minutes.map(HealthFormat.sleepText) ?? "—")
                     StatTile(title: "入睡", value: night.bedtime ?? "—")
                     StatTile(title: "起床", value: night.wake ?? "—")
@@ -124,7 +142,7 @@ struct RestRangePage: View {
             return Window(day: n.date, bed: b, wake: w)
         }
         VStack(alignment: .leading, spacing: Theme.Space.xl) {
-            HStack(spacing: Theme.Space.m) {
+            StatRow {
                 StatTile(title: "平均睡了", value: summary.averageMinutes.map(HealthFormat.sleepText) ?? "—")
                 StatTile(title: "平均入睡", value: summary.averageBedtime ?? "—")
                 StatTile(title: "平均起床", value: summary.averageWake ?? "—")
