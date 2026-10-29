@@ -3,7 +3,10 @@ import Foundation
 /// vault 根目录下的 `lifeos.json`：CourseOS 联动、图层开关、日历显示的时段。
 public struct LifeConfig: Codable, Equatable, Sendable {
     public struct CourseOSLink: Codable, Equatable, Sendable {
-        /// CourseOS 学期目录（含 courseos.json 的那一层）；空 = 不联动
+        /// CourseOS 学期目录（含 courseos.json 的那一层）；空 = 不联动。
+        /// 以 `/` 开头按绝对路径；否则相对 vault 文件夹解析（比如 `../GT-semseters/2026Fall`）——
+        /// LifeOS 和 CourseOS 常是同一个 Obsidian 目录下的两个兄弟 vault，相对路径不用管用户名、
+        /// 换一台电脑也不用改。设置里的"选择…"会自动存成相对路径（选的文件夹和 vault 没有共同上级时才存绝对路径）。
         public var semester: String
         /// 上课时间块从哪天到哪天（学期上课的起止日）
         public var classesFrom: String?
@@ -17,6 +20,29 @@ public struct LifeConfig: Codable, Equatable, Sendable {
             self.classesFrom = classesFrom
             self.classesUntil = classesUntil
             self.sections = sections
+        }
+
+        /// `semester` 解析成实际路径；空 = 不联动，返回 nil。
+        public func resolvedSemesterURL(vault: URL) -> URL? {
+            guard !semester.isEmpty else { return nil }
+            if semester.hasPrefix("/") { return URL(fileURLWithPath: semester) }
+            return vault.appendingPathComponent(semester).standardizedFileURL
+        }
+
+        /// 从 `base`（vault）到 `target`（学期目录）算一条相对路径，比如 `../GT-semseters/2026Fall`；
+        /// 两者只共享根目录（没有有意义的共同上级，比如在不同磁盘）时返回 nil，调用方退回绝对路径。
+        public static func relativePath(from base: URL, to target: URL) -> String? {
+            let baseParts = base.standardizedFileURL.pathComponents
+            let targetParts = target.standardizedFileURL.pathComponents
+            var common = 0
+            while common < baseParts.count, common < targetParts.count, baseParts[common] == targetParts[common] {
+                common += 1
+            }
+            guard common > 1 else { return nil }
+            let ups = Array(repeating: "..", count: baseParts.count - common)
+            let downs = targetParts[common...]
+            let parts = ups + downs
+            return parts.isEmpty ? "." : parts.joined(separator: "/")
         }
     }
 

@@ -1,5 +1,5 @@
 ---
-rules-version: 5
+rules-version: 6
 ---
 # LifeOS 规则（在本 vault 工作的所有 agent 必读）
 
@@ -41,6 +41,9 @@ created: 2026-10-15
   `.courseos/profiles/`、`.courseos/projects/`、`_exports/planvault-time-sensitive.md`。
 - **不往 CourseOS 写任何东西**，也不把课程待办复制成 LifeOS 事项——App 会把它们作为“课程图层”叠在日历上。
 - 课程相关的事去 CourseOS 的 vault 处理，不在这里。
+- `semester` **写成相对路径**（比如 `../GT-semseters/2026Fall`，相对 LifeOS vault 自己所在的文件夹）：
+  LifeOS 和 CourseOS 通常是同一个 Obsidian 目录下的两个兄弟 vault，相对路径不用管用户名，换一台电脑也不用改；
+  只有两边不在同一个 Obsidian 目录下时才写绝对路径（以 `/` 开头）。
 
 ## 写入纪律
 - agent 可以新建 `事项/` 文件、补写正文（准备信息）、整理 `收件箱.md`；开着的插件按“插件”一节写它自己的目录。

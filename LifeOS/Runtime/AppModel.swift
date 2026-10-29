@@ -123,18 +123,17 @@ final class AppModel {
         if !config.plugins.things && page == .things { page = .today }
         vision = config.plugins.vision ? VisionStore(vault: root).load(calendar: calendar) : .empty
         if !config.plugins.vision && page == .vision { page = .today }
-        let semester = config.courseos.semester
-        if semester.isEmpty {
-            snapshot = .empty
-            courseError = nil
-        } else {
+        if let semesterURL = config.courseos.resolvedSemesterURL(vault: root) {
             do {
-                snapshot = try CourseOSBridge.load(semester: URL(fileURLWithPath: semester), calendar: calendar)
+                snapshot = try CourseOSBridge.load(semester: semesterURL, calendar: calendar)
                 courseError = nil
             } catch {
                 snapshot = .empty
                 courseError = "找不到 CourseOS 学期目录（没有 courseos.json）"
             }
+        } else {
+            snapshot = .empty
+            courseError = nil
         }
         // 选中的事项被改过 / 删掉了：按 id 重新找，找不到就清空
         if let sel = selected {
@@ -149,8 +148,7 @@ final class AppModel {
     private func startWatching() {
         guard let root = vaultRoot else { return }
         var paths = [root]
-        if !config.courseos.semester.isEmpty {
-            let sem = URL(fileURLWithPath: config.courseos.semester)
+        if let sem = config.courseos.resolvedSemesterURL(vault: root) {
             paths += [sem.appendingPathComponent("_exports"), sem.appendingPathComponent(".courseos"),
                       sem.appendingPathComponent("courseos.json")]
         }

@@ -54,6 +54,10 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
 `courseos.json`（课程是否追踪 + 手填档案）、`.courseos/profiles/*.json`（上课时间/地点）、
 `_exports/planvault-time-sensitive.md`（截止、考试、预估工作量、status）、`.courseos/projects/*.json`（追踪中的子任务）。
 
+`lifeos.json` 的 `courseos.semester` 支持相对路径（`LifeConfig.CourseOSLink.resolvedSemesterURL(vault:)`，
+以 `/` 开头按绝对路径，否则相对 vault 文件夹解析），同一个 Obsidian 目录下的两个兄弟 vault 换电脑、换用户名不用改配置；
+设置里的文件夹选择器（`SettingsView.chooseSemester`）用 `LifeConfig.CourseOSLink.relativePath(from:to:)` 自动存成相对路径。
+
 ## 签名
 
 `project.yml` 用用户免费 Apple ID 的 Personal Team（`DEVELOPMENT_TEAM: 9DHJNL5JTU`）做 Apple Development 签名，

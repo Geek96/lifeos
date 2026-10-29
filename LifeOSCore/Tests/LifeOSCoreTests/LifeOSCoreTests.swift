@@ -126,6 +126,34 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
     }
 }
 
+@Suite struct LifeConfigTests {
+    @Test func semesterPathResolvesAbsoluteAndRelative() {
+        let vault = URL(fileURLWithPath: "/Users/a/Desktop/SharedDocs/Obsidian/LifeOS")
+        var link = LifeConfig.CourseOSLink()
+        link.semester = ""
+        #expect(link.resolvedSemesterURL(vault: vault) == nil)
+
+        link.semester = "/Users/a/Desktop/SharedDocs/Obsidian/GT-semseters/2026Fall"
+        #expect(link.resolvedSemesterURL(vault: vault)?.path == link.semester)
+
+        // 兄弟目录：换一台电脑、换用户名也该解析到同样的相对位置
+        link.semester = "../GT-semseters/2026Fall"
+        let vaultOnOtherMac = URL(fileURLWithPath: "/Users/b/Desktop/SharedDocs/Obsidian/LifeOS")
+        #expect(link.resolvedSemesterURL(vault: vaultOnOtherMac)?.path
+                == "/Users/b/Desktop/SharedDocs/Obsidian/GT-semseters/2026Fall")
+    }
+
+    @Test func relativePathFindsCommonAncestor() {
+        let vault = URL(fileURLWithPath: "/Users/a/Desktop/SharedDocs/Obsidian/LifeOS")
+        let semester = URL(fileURLWithPath: "/Users/a/Desktop/SharedDocs/Obsidian/GT-semseters/2026Fall")
+        #expect(LifeConfig.CourseOSLink.relativePath(from: vault, to: semester) == "../GT-semseters/2026Fall")
+
+        // 没有共同上级（不同磁盘）就退回 nil，调用方存绝对路径
+        let elsewhere = URL(fileURLWithPath: "/Volumes/External/GT-semseters/2026Fall")
+        #expect(LifeConfig.CourseOSLink.relativePath(from: vault, to: elsewhere) == nil)
+    }
+}
+
 @Suite struct InsightsTests {
     @Test func spreadsCourseworkBeforeDue() {
         let due = Occurrence(id: "x", style: .courseDue, title: "HW", start: d("2026-10-16 09:00"), workloadHours: 6)

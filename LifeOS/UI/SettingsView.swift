@@ -124,6 +124,10 @@ struct SettingsView: View {
             model.feedback.show("这个文件夹里没有 courseos.json，不是 CourseOS 学期目录")
             return
         }
-        draft.courseos.semester = url.path
+        if let root = model.vaultRoot, let relative = LifeConfig.CourseOSLink.relativePath(from: root, to: url) {
+            draft.courseos.semester = relative
+        } else {
+            draft.courseos.semester = url.path
+        }
     }
 }
