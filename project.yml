@@ -5,6 +5,7 @@ options:
   bundleIdPrefix: com.geek96
   deploymentTarget:
     macOS: "15.0"
+    iOS: "18.0"
   xcodeVersion: "16.0"
 
 packages:
@@ -45,10 +46,48 @@ targets:
         LSApplicationCategoryType: public.app-category.productivity
         NSHumanReadableCopyright: "Copyright © 2026"
 
+  # 手机版：只读，读 Möbius Sync 同步到手机上的 vault。和电脑版共用 LifeOSCore、Theme 和 Fmt
+  LifeOSPhone:
+    type: application
+    platform: iOS
+    sources:
+      - path: LifeOSPhone
+      - path: LifeOS/UI/Shared/Theme.swift
+      - path: LifeOS/UI/Shared/Fmt.swift
+    dependencies:
+      - package: LifeOSCore
+        products: [LifeOSCore]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.geek96.lifeos.phone
+        DEVELOPMENT_TEAM: 9DHJNL5JTU
+        CODE_SIGN_STYLE: Automatic
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        TARGETED_DEVICE_FAMILY: "1"
+    info:
+      path: LifeOSPhone/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: zh_CN
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDisplayName: LifeOS
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIApplicationSupportsIndirectInputEvents: true
+
 schemes:
   LifeOS:
     build:
       targets:
         LifeOS: all
+    run:
+      config: Debug
+  LifeOSPhone:
+    build:
+      targets:
+        LifeOSPhone: all
     run:
       config: Debug

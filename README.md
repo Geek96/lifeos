@@ -22,6 +22,12 @@ xcodebuild -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug -derive
 open build.noindex/Build/Products/Debug/LifeOS.app
 ```
 
+### 手机版（只读）
+
+`LifeOSPhone` 是 iPhone 上的只读版：今天、日历、营养三页。vault 用 [Möbius Sync](https://www.mobiussync.com)（Syncthing）同步到手机，
+文件夹设成“仅接收”；第一次打开在“文件”里选同步过来的文件夹（选 vault 的上一级，课程表也能读到）。
+免费 Apple ID 签的手机 App 7 天后要重新装一次。
+
 ## 准备 vault
 
 数据都在一个 vault 文件夹里（默认 `~/Documents/LifeOS`，首次打开可选其他位置），每件事一个 Markdown 文件，Obsidian 可读。

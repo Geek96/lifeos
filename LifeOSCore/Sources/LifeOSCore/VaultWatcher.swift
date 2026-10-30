@@ -1,7 +1,8 @@
+#if os(macOS)
 import Foundation
 import CoreServices
 
-/// 监听 vault 与机器面目录的文件变化（FSEvents），替代手动“扫描”。
+/// 监听 vault 与机器面目录的文件变化（FSEvents），替代手动“扫描”。只有 macOS 有；手机版回到前台时重新读。
 /// latency 内的连续变动合并成一次回调；回调在后台队列上触发，调用方自行切回主线程。
 public final class VaultWatcher: @unchecked Sendable {
     private let paths: [String]
@@ -47,3 +48,4 @@ public final class VaultWatcher: @unchecked Sendable {
         stream = nil
     }
 }
+#endif

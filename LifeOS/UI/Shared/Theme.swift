@@ -1,6 +1,10 @@
 import SwiftUI
-import AppKit
 import LifeOSCore
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// 视觉规范：圆角、间距、语义色。各处统一从这里取，不手写数值。
 /// 沿用 CourseOS 的视觉规范（docs/specs/2026-10-10-polish-design.md §2）。
@@ -63,6 +67,7 @@ enum Theme {
     }
 
     static func dynamic(light: UInt32, dark: UInt32) -> Color {
+        #if os(macOS)
         func ns(_ hex: UInt32) -> NSColor {
             NSColor(srgbRed: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255,
                     blue: CGFloat(hex & 0xff) / 255, alpha: 1)
@@ -70,6 +75,13 @@ enum Theme {
         return Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.darkAqua, .vibrantDark, .accessibilityHighContrastDarkAqua]) != nil ? ns(dark) : ns(light)
         })
+        #else
+        func ui(_ hex: UInt32) -> UIColor {
+            UIColor(red: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255,
+                    blue: CGFloat(hex & 0xff) / 255, alpha: 1)
+        }
+        return Color(uiColor: UIColor { traits in traits.userInterfaceStyle == .dark ? ui(dark) : ui(light) })
+        #endif
     }
 }
 

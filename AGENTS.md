@@ -67,6 +67,20 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
 以 `/` 开头按绝对路径，否则相对 vault 文件夹解析），同一个 Obsidian 目录下的两个兄弟 vault 换电脑、换用户名不用改配置；
 设置里的文件夹选择器（`SettingsView.chooseSemester`）用 `LifeConfig.CourseOSLink.relativePath(from:to:)` 自动存成相对路径。
 
+## 手机版（`LifeOSPhone/`）
+
+- **只读**：内容由电脑决定，手机不写任何文件。vault 通过 Möbius Sync（iPhone 上的 Syncthing 客户端）同步到手机，
+  文件夹在 Möbius 里设成“仅接收”（Receive Only），手机上的改动不会往外发，所以不会产生同步冲突。
+- 共用 `LifeOSCore`，以及 `LifeOS/UI/Shared/` 里的 `Theme.swift`、`Fmt.swift`（这两个文件不能依赖 `AppModel` 或 AppKit）。
+  `PhoneModel` 的日历算法要和 `AppModel` 保持一致（`occurrences` / `loads` / `upcoming`）。
+- 第一次打开在“文件”里选同步过来的文件夹：选 vault 本身或它的上级（往下找三层有 `lifeos.json` 或 `.lifeos/` 的文件夹）。
+  `lifeos.json` 里的 CourseOS 是相对路径（`../GT-semseters/2026Fall`），所以要读课程就得选 vault 的上级，
+  Möbius 里也要同步学期目录的 `courseos.json`、`_exports/`、`.courseos/`。选的文件夹存成 bookmark。
+- 没有文件监听（`VaultWatcher` 只有 macOS 有），回到前台和下拉时重新读。
+- 现在三页：今天、日历（月历 + 这天 / 这周）、营养（某天对目标 + 吃了什么 + 7 天热量柱）。
+- 调试：启动参数 `-debugVaultPath <路径>` 跳过文件选择（只在 Debug），`-debugTab 0|1|2` 直接打开某一页。
+  模拟器读 `~/Desktop` 会卡在系统授权上，先把 vault 复制到别处再指过去。
+
 ## 签名
 
 `project.yml` 用用户免费 Apple ID 的 Personal Team（`DEVELOPMENT_TEAM: 9DHJNL5JTU`）做 Apple Development 签名，
@@ -77,4 +91,5 @@ designated requirement 绑定证书，重新编译后不变，macOS 不会反复
 
 1. `swift test --package-path LifeOSCore`
 2. `xcodebuild -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug -derivedDataPath build.noindex build`
+   手机版：`xcodebuild -project LifeOS.xcodeproj -scheme LifeOSPhone -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath build.noindex build`
 3. 改了 UI 就打开 App 肉眼确认（今天 / 周 / 月 / 收件箱 / 检查器）。
