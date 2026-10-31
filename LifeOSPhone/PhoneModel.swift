@@ -1,7 +1,8 @@
 import SwiftUI
 import LifeOSCore
 
-/// 手机版：只读。内容由电脑决定，手机通过 Möbius Sync（Syncthing，设成“仅接收”）拿到 vault，这里只读不写。
+/// 手机版：除了勾购物清单都只读。内容由电脑决定，手机通过 Möbius Sync（Syncthing，发送和接收）拿到 vault。
+/// 唯一的写入：`toggleShopping` 只改 `健康/购物清单.md` 里那一行的勾选框（`ShoppingList.toggle`），不新建、不删除、不改名任何文件。
 /// 用户在“文件”里选同步过来的文件夹（选 vault 本身或它的上级都行）；选上级时 CourseOS 学期目录也在授权范围内。
 @Observable
 @MainActor
@@ -24,6 +25,8 @@ final class PhoneModel {
     var vision = VisionSnapshot.empty
     var lastLoad: Date?
     var clock = Date()
+    /// 一句短提示（勾购物清单没写成时），几秒后自己消失
+    var notice: String?
 
     let calendar: Calendar = {
         var c = Calendar.current
@@ -38,6 +41,11 @@ final class PhoneModel {
         // 模拟器调试：启动参数 `-debugVaultPath <Mac 上的路径>` 直接读，不走文件选择
         if let path = UserDefaults.standard.string(forKey: "debugVaultPath") {
             open(URL(fileURLWithPath: path), saveBookmark: false, scoped: false)
+            // 模拟器里测勾选（只对 -debugVaultPath 指的副本）：`-debugToggleShopping <那一项的文字>` 启动时勾 / 取消一次
+            if let text = UserDefaults.standard.string(forKey: "debugToggleShopping"),
+               let item = health.shopping.first(where: { $0.text == text }) {
+                toggleShopping(item)
+            }
             return
         }
         #endif
@@ -92,7 +100,7 @@ final class PhoneModel {
         return nil
     }
 
-    // MARK: - 载入（只读）
+    // MARK: - 载入
 
     func reload() {
         guard let root = vaultRoot else { return }
@@ -117,6 +125,23 @@ final class PhoneModel {
         }
         lastLoad = Date()
         clock = Date()
+    }
+
+    // MARK: - 唯一的写入：勾购物清单
+
+    /// 勾上 / 取消一项。写之前从磁盘重读，那一行对不上（电脑上改过）就不写，重新读一次并提示。
+    /// 用的是选文件夹时一直开着的安全作用域（`picked`）；临时文件放在 App 自己的 tmp 目录。
+    func toggleShopping(_ item: ShoppingItem) {
+        guard let root = vaultRoot, config.plugins.health else { return }
+        let store = HealthStore(vault: root)
+        do {
+            if try !ShoppingList.toggle(item, at: store.shoppingURL) {
+                notice = "这一项在电脑上改过了，已重新读取"
+            }
+        } catch {
+            notice = "没能写入：\(error.localizedDescription)"
+        }
+        health.shopping = store.loadShopping()
     }
 
     // MARK: - 日历数据（和电脑版 AppModel 同一套算法）

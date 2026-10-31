@@ -78,16 +78,25 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
 
 ## 手机版（`LifeOSPhone/`）
 
-- **只读**：内容由电脑决定，手机不写任何文件。vault 通过 Möbius Sync（iPhone 上的 Syncthing 客户端）同步到手机，
-  文件夹在 Möbius 里设成“仅接收”（Receive Only），手机上的改动不会往外发，所以不会产生同步冲突。
+- **除了勾购物清单都只读**：内容由电脑决定。vault 通过 Möbius Sync（iPhone 上的 Syncthing 客户端）同步到手机，
+  文件夹在 Möbius 里设成“发送和接收”（Send & Receive），手机勾的购物清单才能同步回电脑。
+  手机唯一的写入是 `PhoneModel.toggleShopping` → `ShoppingList.toggle`（`LifeOSCore/Recipes.swift`，电脑版 `AppModel.toggleShopping` 也用它）：
+  写前在 `NSFileCoordinator` 里从磁盘重读，按 段 + 文字 + 同段重名序号（`ShoppingItem.occurrence`）+ 当前勾选状态找那一行，
+  只把勾选框里那一个字节在空格和 `x` 之间换（`X` 取消时也变空格），其他字节原样；找不到 / 对不上（电脑上改过）就不写，重新读并提示一句。
+  新内容先写到 App 自己的 tmp 目录，再 `rename(2)` 换掉原文件（同卷原子，不往 vault 里放临时文件）。
+  手机不新建、不删除、不改名任何 vault 文件，不加项、不清掉买好的（这些在电脑上做）。其他页面（今天、日历、营养记录、食谱）仍然只读。
 - 共用 `LifeOSCore`，以及 `LifeOS/UI/Shared/` 里的 `Theme.swift`、`Fmt.swift`（这两个文件不能依赖 `AppModel` 或 AppKit）。
   `PhoneModel` 的日历算法要和 `AppModel` 保持一致（`occurrences` / `loads` / `upcoming`）。
 - 第一次打开在“文件”里选同步过来的文件夹：选 vault 本身或它的上级（往下找三层有 `lifeos.json` 或 `.lifeos/` 的文件夹）。
   `lifeos.json` 里的 CourseOS 是相对路径（`../GT-semseters/2026Fall`），所以要读课程就得选 vault 的上级，
   Möbius 里也要同步学期目录的 `courseos.json`、`_exports/`、`.courseos/`。选的文件夹存成 bookmark。
 - 没有文件监听（`VaultWatcher` 只有 macOS 有），回到前台和下拉时重新读。
-- 现在三页：今天、日历（月历 + 这天 / 这周）、营养（某天对目标 + 吃了什么 + 7 天热量柱）。
-- 调试：启动参数 `-debugVaultPath <路径>` 跳过文件选择（只在 Debug），`-debugTab 0|1|2` 直接打开某一页。
+- 现在三页：今天、日历（月历 + 这天 / 这周）、营养。营养页顶部分段 记录 / 食谱 / 购物清单（和电脑版营养页的分页对应，备餐只在电脑上）：
+  记录 = 某天对目标 + 吃了什么 + 7 天热量柱；食谱（`PhoneRecipeViews.swift`）按顿分组，点进去看每份营养、材料和在哪买、做法、备注；
+  购物清单按在哪买分组，点一下勾 / 取消。放进营养页的分段而不是单独一个 tab：和电脑版的结构一致，底栏保持三个。
+- 调试：启动参数 `-debugVaultPath <路径>` 跳过文件选择（只在 Debug），`-debugTab 0|1|2` 直接打开某一页，
+  `-debugNutritionPage 1|2` 打开营养页的 食谱 / 购物清单，`-debugRecipe <名字>` 打开某个食谱，
+  `-debugToggleShopping <那一项的文字>` 启动时勾 / 取消一次（只对 `-debugVaultPath` 指的副本，测勾选写回用）。
   模拟器读 `~/Desktop` 会卡在系统授权上，先把 vault 复制到别处再指过去。
 
 ## 签名

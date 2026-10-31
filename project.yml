@@ -46,7 +46,7 @@ targets:
         LSApplicationCategoryType: public.app-category.productivity
         NSHumanReadableCopyright: "Copyright © 2026"
 
-  # 手机版：只读，读 Möbius Sync 同步到手机上的 vault。和电脑版共用 LifeOSCore、Theme 和 Fmt
+  # 手机版：除了勾购物清单都只读，读 Möbius Sync 同步到手机上的 vault。和电脑版共用 LifeOSCore、Theme 和 Fmt
   LifeOSPhone:
     type: application
     platform: iOS

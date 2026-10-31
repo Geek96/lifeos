@@ -497,9 +497,14 @@ final class AppModel {
 
     func toggleShopping(_ item: ShoppingItem) {
         guard let root = vaultRoot else { return }
-        let url = HealthStore(vault: root).shoppingURL
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return }
-        try? ShoppingList.toggling(item, in: text).write(to: url, atomically: true, encoding: .utf8)
+        // 和手机版共用：写前重读、只改勾选框、对不上就不写
+        do {
+            if try !ShoppingList.toggle(item, at: HealthStore(vault: root).shoppingURL) {
+                feedback.show("这一项已经变了（可能在手机上勾过），已重新读取")
+            }
+        } catch {
+            feedback.show("没能写入：\(error.localizedDescription)")
+        }
         reload()
     }
 

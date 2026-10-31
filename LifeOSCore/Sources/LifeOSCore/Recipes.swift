@@ -4,7 +4,8 @@ import Foundation
 // - `食谱/{名字}.md`：一个食谱一个文件。frontmatter `type: recipe`、`name`、`meal`（早饭 / 午饭 / 加餐 / 晚饭 / 备餐）、
 //   每份的 `kcal`、`protein`、`carbs`、`fat`，可选微量营养（`sodium` …，键同目标文件），`batch`（一次做几份，备餐用）；
 //   正文 `## 材料` 一张表 `| 材料 | 一份用量 | 在哪买 |`，`## 做法` 编号列表，其余随意。agent 写，App 读。
-// - `购物清单.md`：按“## 在哪买”分组的勾选列表 `- [ ] 土豆 400 g（孜然猪肉土豆卷 ×4）`。App 可以加、勾、清掉买好的。
+// - `购物清单.md`：按“## 在哪买”分组的勾选列表 `- [ ] 土豆 400 g（孜然猪肉土豆卷 ×4）`。电脑版可以加、勾、清掉买好的；
+//   手机版只能勾 / 取消（`ShoppingList.toggle`，只改那一行的勾选框）。
 // - `备餐.md`：一张表 `| 做的那天 | 什么 | 做了 | 还剩 | 放哪 | 吃完期限 |`，冷藏、冷冻各一行。
 //   App 可以记一批、“吃了一个”（还剩 −1，同时按食谱的营养在当天饮食表记一行）。
 
@@ -133,15 +134,17 @@ extension HealthStore {
 
 /// 购物清单里的一项
 public struct ShoppingItem: Equatable, Sendable, Identifiable {
-    public var id: String { store + "|" + text }
+    public var id: String { store + "|" + text + "|\(occurrence)" }
     /// 在哪买（清单里的 “## ” 标题）
     public var store: String
     /// 整行文字（不含 “- [ ] ”）
     public var text: String
     public var done: Bool
+    /// 同一段里文字一模一样的第几个（从 0 数，勾没勾都算）：有重名的项时靠它找到是哪一行
+    public var occurrence: Int
 
-    public init(store: String, text: String, done: Bool) {
-        self.store = store; self.text = text; self.done = done
+    public init(store: String, text: String, done: Bool, occurrence: Int = 0) {
+        self.store = store; self.text = text; self.done = done; self.occurrence = occurrence
     }
 }
 
@@ -149,16 +152,58 @@ public enum ShoppingList {
     public static let header = "---\ntype: shopping-list\n---\n# 购物清单\n\n按在哪买分组；买到了就勾上，App 里“清掉买好的”会把勾了的删掉。\n"
 
     public static func parse(_ text: String) -> [ShoppingItem] {
+        scan(Array(text.utf8)).map(\.item)
+    }
+
+    /// 清单里的一个勾选行：解析出来的项 + 勾选框里那个字符（空格 / x / X）在文件里的字节位置
+    struct Line {
+        var item: ShoppingItem
+        var markOffset: Int
+    }
+
+    /// 逐行扫描（按字节，`\n` 和 `\r\n` 都行）：跳过 frontmatter，“## ” 换段，`- [ ] ` / `- [x] ` / `- [X] ` 是一项。
+    /// `parse` 和 `toggle` 都用它，显示的和写的一定是同一行。
+    static func scan(_ bytes: [UInt8]) -> [Line] {
+        // 切行：每行的 [开始, 结束)（不含 \n）
+        var ranges: [Range<Int>] = []
+        var start = 0
+        for (i, b) in bytes.enumerated() where b == 0x0A {
+            ranges.append(start..<i)
+            start = i + 1
+        }
+        ranges.append(start..<bytes.count)
+        func string(_ r: Range<Int>) -> String { String(decoding: bytes[r], as: UTF8.self) }
+        func trimmed(_ r: Range<Int>) -> String {
+            var s = string(r)
+            if s.hasPrefix("\u{FEFF}") { s.removeFirst() }
+            return s.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        // frontmatter（和 Frontmatter.parse 一样：第一行是 ---，到下一个 --- 为止）
+        var first = 0
+        if let r0 = ranges.first, trimmed(r0) == "---",
+           let close = ranges.indices.dropFirst().first(where: { trimmed(ranges[$0]) == "---" }) {
+            first = close + 1
+        }
         var store = "其他"
-        var items: [ShoppingItem] = []
-        for line in Frontmatter.parse(text).body.components(separatedBy: "\n") {
-            let t = line.trimmingCharacters(in: .whitespaces)
+        var seen: [String: Int] = [:]
+        var lines: [Line] = []
+        for r in ranges[first...] {
+            let t = trimmed(r)
             if t.hasPrefix("## ") { store = String(t.dropFirst(3)).trimmingCharacters(in: .whitespaces); continue }
             for (prefix, done) in [("- [ ] ", false), ("- [x] ", true), ("- [X] ", true)] where t.hasPrefix(prefix) {
-                items.append(ShoppingItem(store: store, text: String(t.dropFirst(prefix.count)), done: done))
+                // 勾选框的位置：行首空白之后的 “- [” 再往后一个字节
+                let raw = string(r)
+                guard let at = raw.range(of: prefix.trimmingCharacters(in: .whitespaces)) else { break }
+                let offset = r.lowerBound + raw.utf8.distance(from: raw.startIndex, to: at.lowerBound) + 3
+                guard offset < r.upperBound, [0x20, 0x78, 0x58].contains(bytes[offset]) else { break }
+                let text = String(t.dropFirst(prefix.count))
+                let key = store + "\n" + text
+                let n = seen[key, default: 0]
+                seen[key] = n + 1
+                lines.append(Line(item: ShoppingItem(store: store, text: text, done: done, occurrence: n), markOffset: offset))
             }
         }
-        return items
+        return lines
     }
 
     /// 几个食谱各做几份要买的东西：同名同单位的加起来，单位对不上的分开列；“家里有”的不列
@@ -195,8 +240,8 @@ public enum ShoppingList {
     /// 把新的几项加到清单里（按“在哪买”放进对应的段，没有就新建一段）；已经有一模一样还没勾的就跳过
     public static func adding(_ new: [ShoppingItem], to text: String?) -> String {
         var lines = (text ?? header).components(separatedBy: "\n")
-        let existing = Set(parse(text ?? "").filter { !$0.done }.map(\.id))
-        for item in new where !existing.contains(item.id) {
+        let existing = Set(parse(text ?? "").filter { !$0.done }.map { $0.store + "|" + $0.text })
+        for item in new where !existing.contains(item.store + "|" + item.text) {
             let line = "- [ ] " + item.text
             if let h = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "## " + item.store }) {
                 var i = h + 1
@@ -215,21 +260,67 @@ public enum ShoppingList {
         return out
     }
 
-    /// 勾上 / 取消某一项（按段和文字找第一处）
+    /// 勾上 / 取消某一项：只改那一行勾选框里的一个字符（空格 ↔ x，`X` 取消时也变空格），其他字节原样。
+    /// 按 段 + 文字 + 第几个重名 + 现在勾没勾 找那一行；找不到（或者状态和看到的不一样）返回 nil。
+    public static func toggledBytes(_ item: ShoppingItem, in bytes: [UInt8]) -> [UInt8]? {
+        guard let line = scan(bytes).first(where: {
+            $0.item.store == item.store && $0.item.text == item.text
+                && $0.item.occurrence == item.occurrence && $0.item.done == item.done
+        }) else { return nil }
+        var out = bytes
+        out[line.markOffset] = item.done ? 0x20 : 0x78
+        return out
+    }
+
+    /// 文字版（电脑版旧接口）：找不到就原样返回
     public static func toggling(_ item: ShoppingItem, in text: String) -> String {
-        var lines = text.components(separatedBy: "\n")
-        var store = "其他"
-        for i in lines.indices {
-            let t = lines[i].trimmingCharacters(in: .whitespaces)
-            if t.hasPrefix("## ") { store = String(t.dropFirst(3)).trimmingCharacters(in: .whitespaces); continue }
-            guard store == item.store else { continue }
-            if !item.done, t == "- [ ] " + item.text { lines[i] = lines[i].replacingOccurrences(of: "- [ ] ", with: "- [x] "); break }
-            if item.done, t == "- [x] " + item.text || t == "- [X] " + item.text {
-                lines[i] = lines[i].replacingOccurrences(of: "- [x] ", with: "- [ ] ").replacingOccurrences(of: "- [X] ", with: "- [ ] ")
-                break
-            }
+        toggledBytes(item, in: Array(text.utf8)).map { String(decoding: $0, as: UTF8.self) } ?? text
+    }
+
+    public enum ToggleError: Error, LocalizedError {
+        case replaceFailed(Int32)
+        public var errorDescription: String? {
+            switch self { case .replaceFailed(let e): "替换文件失败（\(String(cString: strerror(e)))）" }
         }
-        return lines.joined(separator: "\n")
+    }
+
+    /// 在磁盘上勾上 / 取消一项（电脑版和手机版共用）：
+    /// 1. 写之前从磁盘重新读这个文件（在 NSFileCoordinator 里，和别的进程错开）；
+    /// 2. 按段 + 文字 + 重名序号 + 勾选状态找那一行，找不到 / 对不上 → 不写，返回 false；
+    /// 3. 新内容先写到 `scratch`（App 自己的临时目录，不在 vault 里），再用 rename(2) 一步换掉原文件
+    ///    （同一个卷上是原子的；不同卷会失败、报错，不会退回成非原子的写法）。临时文件无论成败都不留下。
+    /// 不新建、不删除、不改名 vault 里的任何文件：原文件不存在就返回 false。
+    /// iOS 上调用前要已经 `startAccessingSecurityScopedResource`（PhoneModel 选文件夹时一直开着）。
+    @discardableResult
+    public static func toggle(_ item: ShoppingItem, at url: URL,
+                              scratch: URL = FileManager.default.temporaryDirectory) throws -> Bool {
+        var result: Result<Bool, Error> = .success(false)
+        var coordError: NSError?
+        NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forReplacing, error: &coordError) { target in
+            result = Result { try toggleNow(item, at: target, scratch: scratch) }
+        }
+        if let coordError { throw coordError }
+        return try result.get()
+    }
+
+    private static func toggleNow(_ item: ShoppingItem, at url: URL, scratch: URL) throws -> Bool {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else { return false }
+        let bytes = [UInt8](try Data(contentsOf: url))
+        guard let out = toggledBytes(item, in: bytes) else { return false }
+        try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let tmp = scratch.appendingPathComponent("lifeos-shopping-\(UUID().uuidString).md")
+        defer { try? fm.removeItem(at: tmp) }
+        try Data(out).write(to: tmp)
+        // 保留原文件的权限
+        if let perm = try? fm.attributesOfItem(atPath: url.path)[.posixPermissions] {
+            try? fm.setAttributes([.posixPermissions: perm], ofItemAtPath: tmp.path)
+        }
+        let rc = tmp.withUnsafeFileSystemRepresentation { src in
+            url.withUnsafeFileSystemRepresentation { dst in rename(src!, dst!) }
+        }
+        guard rc == 0 else { throw ToggleError.replaceFailed(errno) }
+        return true
     }
 
     /// 删掉勾了的；删完空了的段标题也删

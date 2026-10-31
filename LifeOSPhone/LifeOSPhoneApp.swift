@@ -46,10 +46,10 @@ struct PhoneSetupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.l) {
             Text("LifeOS").font(.largeTitle.bold())
-            Text("手机上只看，不改。内容在电脑上定，通过 Möbius Sync 同步过来。")
+            Text("手机上只看，只能勾购物清单。内容在电脑上定，通过 Möbius Sync 同步过来。")
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: Theme.Space.s) {
-                Label("在 Möbius Sync 里把文件夹设成“仅接收”", systemImage: "1.circle")
+                Label("在 Möbius Sync 里把文件夹设成“发送和接收”（勾购物清单要同步回电脑）", systemImage: "1.circle")
                 Label("点下面的按钮，在“文件”里选同步过来的文件夹", systemImage: "2.circle")
                 Text("选 LifeOS vault 的上一级（比如 Obsidian），课程表也能一起读到。")
                     .font(.footnote).foregroundStyle(.secondary).padding(.leading, 28)
@@ -89,7 +89,7 @@ struct PhoneSettingsSheet: View {
                     Section("课程") { Text(e).foregroundStyle(.secondary) }
                 }
                 Section {
-                    Text("手机版只读。要改内容，在电脑上改，或者跟 agent 说。")
+                    Text("手机版除了勾购物清单都只读。要改内容，在电脑上改，或者跟 agent 说。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }

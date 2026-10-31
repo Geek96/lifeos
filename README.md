@@ -24,10 +24,12 @@ xcodebuild -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug -derive
 open build.noindex/Build/Products/Debug/LifeOS.app
 ```
 
-### 手机版（只读）
+### 手机版（除了勾购物清单都只读）
 
-`LifeOSPhone` 是 iPhone 上的只读版：今天、日历、营养三页。vault 用 [Möbius Sync](https://www.mobiussync.com)（Syncthing）同步到手机，
-文件夹设成“仅接收”；第一次打开在“文件”里选同步过来的文件夹（选 vault 的上一级，课程表也能读到）。
+`LifeOSPhone` 是 iPhone 版：今天、日历、营养三页；营养页分 记录 / 食谱 / 购物清单。食谱按顿分组，点进去看每份营养、材料（在哪买）、做法。
+购物清单按在哪买分组，点一下勾上 / 取消——这是手机唯一会写的地方：只改 `健康/购物清单.md` 里那一行的勾选框，不新建、不删除、不改名任何文件；
+加东西、清掉买好的还在电脑上做。vault 用 [Möbius Sync](https://www.mobiussync.com)（Syncthing）同步到手机，
+文件夹设成“发送和接收”（勾的结果才能同步回电脑）；第一次打开在“文件”里选同步过来的文件夹（选 vault 的上一级，课程表也能读到）。
 免费 Apple ID 签的手机 App 7 天后要重新装一次。
 
 ## 准备 vault

@@ -1211,3 +1211,115 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
         }
     }
 }
+
+/// 购物清单的勾选写回（电脑版和手机版共用 `ShoppingList.toggle`）
+@Suite struct ShoppingToggleTests {
+    static let sample = "---\r\ntype: shopping-list\r\n---\r\n# 购物清单\r\n\r\n## 超市\r\n- [ ] 土豆 500 g（孜然猪肉土豆卷 ×4）\r\n  - [ ] 鸡蛋 12 个\r\n- [x] 牛奶 1 gal\r\n\r\n## Weee\r\n- [ ] 土豆 500 g（孜然猪肉土豆卷 ×4）\r\n- [X] 米 2 lb\r\n备注：- [ ] 这一行不是勾选项\r\n"
+
+    /// 新建一个只有购物清单的临时目录（模拟 vault）
+    private func makeVault(_ text: String) throws -> (dir: URL, file: URL, scratch: URL) {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("shop-\(UUID().uuidString)")
+        let dir = base.appendingPathComponent("vault")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("购物清单.md")
+        try Data(text.utf8).write(to: file)
+        return (dir, file, base.appendingPathComponent("scratch"))
+    }
+
+    private func differingLines(_ a: [UInt8], _ b: [UInt8]) -> [Int] {
+        let la = a.split(separator: 0x0A, omittingEmptySubsequences: false)
+        let lb = b.split(separator: 0x0A, omittingEmptySubsequences: false)
+        #expect(la.count == lb.count)
+        return la.indices.filter { la[$0] != lb[$0] }
+    }
+
+    @Test func parseKeepsSectionsAndDuplicates() {
+        let items = ShoppingList.parse(Self.sample)
+        #expect(items.map(\.store) == ["超市", "超市", "超市", "Weee", "Weee"])
+        #expect(items.map(\.text) == ["土豆 500 g（孜然猪肉土豆卷 ×4）", "鸡蛋 12 个", "牛奶 1 gal", "土豆 500 g（孜然猪肉土豆卷 ×4）", "米 2 lb"])
+        #expect(items.map(\.done) == [false, false, true, false, true])
+        // 两段里的土豆是两项，id 不同
+        #expect(Set(items.map(\.id)).count == items.count)
+    }
+
+    @Test func roundTripOnDisk() throws {
+        let v = try makeVault(Self.sample)
+        let original = [UInt8](try Data(contentsOf: v.file))
+        let egg = try #require(ShoppingList.parse(Self.sample).first { $0.text.hasPrefix("鸡蛋") })
+        #expect(try ShoppingList.toggle(egg, at: v.file, scratch: v.scratch))
+        let once = try String(contentsOf: v.file, encoding: .utf8)
+        let ticked = try #require(ShoppingList.parse(once).first { $0.text.hasPrefix("鸡蛋") })
+        #expect(ticked.done)
+        #expect(try ShoppingList.toggle(ticked, at: v.file, scratch: v.scratch))
+        #expect([UInt8](try Data(contentsOf: v.file)) == original)
+        // vault 里只剩原来那个文件，临时目录也是空的
+        #expect(try FileManager.default.contentsOfDirectory(atPath: v.dir.path) == ["购物清单.md"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: v.scratch.path).isEmpty)
+    }
+
+    @Test func onlyTheCheckboxByteChanges() throws {
+        let bytes = Array(Self.sample.utf8)
+        for item in ShoppingList.parse(Self.sample) {
+            let out = try #require(ShoppingList.toggledBytes(item, in: bytes))
+            #expect(out.count == bytes.count)
+            let diff = bytes.indices.filter { bytes[$0] != out[$0] }
+            #expect(diff.count == 1)
+            #expect(differingLines(bytes, out).count == 1)
+            // 改的是勾选框里那个字符
+            let i = try #require(diff.first)
+            #expect(bytes[i - 1] == UInt8(ascii: "[") && out[i + 1] == UInt8(ascii: "]"))
+            #expect(out[i] == (item.done ? UInt8(ascii: " ") : UInt8(ascii: "x")))
+        }
+        // 大写 X 取消时变空格
+        let rice = try #require(ShoppingList.parse(Self.sample).first { $0.text == "米 2 lb" })
+        let out = try #require(ShoppingList.toggledBytes(rice, in: bytes))
+        #expect(String(decoding: out, as: UTF8.self).contains("- [ ] 米 2 lb\r\n"))
+    }
+
+    @Test func noWriteWhenLineMissingOrChanged() throws {
+        let v = try makeVault(Self.sample)
+        let before = try Data(contentsOf: v.file)
+        let modified = try FileManager.default.attributesOfItem(atPath: v.file.path)[.modificationDate] as? Date
+        // 1. 文字对不上（电脑上改了这一项）
+        #expect(try !ShoppingList.toggle(ShoppingItem(store: "超市", text: "土豆 400 g", done: false), at: v.file, scratch: v.scratch))
+        // 2. 段对不上
+        #expect(try !ShoppingList.toggle(ShoppingItem(store: "Amazon", text: "鸡蛋 12 个", done: false), at: v.file, scratch: v.scratch))
+        // 3. 勾选状态和看到的不一样（电脑上已经勾了）
+        #expect(try !ShoppingList.toggle(ShoppingItem(store: "超市", text: "牛奶 1 gal", done: false), at: v.file, scratch: v.scratch))
+        // 4. 重名序号超出（那一行被删了）
+        #expect(try !ShoppingList.toggle(ShoppingItem(store: "Weee", text: "土豆 500 g（孜然猪肉土豆卷 ×4）", done: false, occurrence: 1),
+                                         at: v.file, scratch: v.scratch))
+        // 5. 不是勾选项的行
+        #expect(try !ShoppingList.toggle(ShoppingItem(store: "Weee", text: "这一行不是勾选项", done: false), at: v.file, scratch: v.scratch))
+        #expect(try Data(contentsOf: v.file) == before)
+        #expect(try FileManager.default.attributesOfItem(atPath: v.file.path)[.modificationDate] as? Date == modified)
+        // 6. 文件不在：不新建
+        let gone = v.dir.appendingPathComponent("没有.md")
+        #expect(try !ShoppingList.toggle(ShoppingItem(store: "超市", text: "鸡蛋 12 个", done: false), at: gone, scratch: v.scratch))
+        #expect(!FileManager.default.fileExists(atPath: gone.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: v.dir.path) == ["购物清单.md"])
+    }
+
+    @Test func duplicatesHitTheRightLine() throws {
+        // 同一段里两行一模一样，另一段里也有同名的
+        let text = "## 超市\n- [ ] 鸡蛋 12 个\n- [ ] 香蕉\n- [ ] 鸡蛋 12 个\n\n## Weee\n- [ ] 鸡蛋 12 个\n"
+        let items = ShoppingList.parse(text)
+        let eggs = items.filter { $0.text == "鸡蛋 12 个" }
+        #expect(eggs.map(\.store) == ["超市", "超市", "Weee"] && eggs.map(\.occurrence) == [0, 1, 0])
+        let bytes = Array(text.utf8)
+        // 勾超市第二个鸡蛋 → 只改第 4 行（下标 3）
+        let second = try #require(ShoppingList.toggledBytes(eggs[1], in: bytes))
+        #expect(differingLines(bytes, second) == [3])
+        // 勾 Weee 的鸡蛋 → 只改第 7 行（下标 6）
+        let weee = try #require(ShoppingList.toggledBytes(eggs[2], in: bytes))
+        #expect(differingLines(bytes, weee) == [6])
+        // 勾了第二个以后，第一个的序号不变，还能单独勾 / 取消
+        let reparsed = ShoppingList.parse(String(decoding: second, as: UTF8.self))
+        #expect(reparsed.filter { $0.text == "鸡蛋 12 个" }.map(\.done) == [false, true, false])
+        let first = try #require(reparsed.first { $0.store == "超市" && $0.text == "鸡蛋 12 个" && $0.occurrence == 0 })
+        let both = try #require(ShoppingList.toggledBytes(first, in: second))
+        #expect(differingLines(second, both) == [1])
+        let back = try #require(ShoppingList.parse(String(decoding: both, as: UTF8.self)).first { $0.occurrence == 1 && $0.store == "超市" && $0.text == "鸡蛋 12 个" })
+        #expect(differingLines(both, try #require(ShoppingList.toggledBytes(back, in: both))) == [3])
+    }
+}

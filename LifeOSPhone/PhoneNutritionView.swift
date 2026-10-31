@@ -2,8 +2,61 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-/// 营养：选一天看各项和目标比、每顿吃了什么；下面是最近 7 天的热量 / 蛋白质柱状图（只算记全的日子的平均）
+/// 营养：和电脑版营养页一样分 记录 / 食谱 / 购物清单（备餐只在电脑上）。
+/// 记录 = 选一天看各项和目标比、每顿吃了什么、最近 7 天的热量柱；食谱、购物清单在 PhoneRecipeViews.swift。
 struct PhoneNutritionView: View {
+    enum Page: Int, CaseIterable {
+        case log, recipes, shopping
+        var title: String { switch self { case .log: "记录"; case .recipes: "食谱"; case .shopping: "购物清单" } }
+    }
+
+    @Environment(PhoneModel.self) private var model
+    // 调试时可用启动参数 `-debugNutritionPage 1|2` 直接打开 食谱 / 购物清单
+    @State private var page = Page(rawValue: UserDefaults.standard.integer(forKey: "debugNutritionPage")) ?? .log
+    // 调试时可用启动参数 `-debugRecipe <名字>` 直接打开某个食谱的详情（只在 Debug）
+    @State private var debugRecipeOpen = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Picker("分页", selection: $page) {
+                        ForEach(Page.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                }
+                switch page {
+                case .log: PhoneNutritionLog()
+                case .recipes: PhoneRecipeSections()
+                case .shopping: PhoneShoppingSections()
+                }
+            }
+            .navigationTitle("营养")
+            .toolbar { SettingsButton() }
+            .refreshable { model.reload() }
+            .safeAreaInset(edge: .bottom) { PhoneNoticeBanner() }
+            #if DEBUG
+            .navigationDestination(isPresented: $debugRecipeOpen) {
+                if let r = debugRecipe { PhoneRecipeDetail(recipe: r) }
+            }
+            .task { debugRecipeOpen = debugRecipe != nil }
+            #endif
+        }
+    }
+}
+
+#if DEBUG
+extension PhoneNutritionView {
+    private var debugRecipe: Recipe? {
+        UserDefaults.standard.string(forKey: "debugRecipe").flatMap { name in model.health.recipes.first { $0.name == name } }
+    }
+}
+#endif
+
+/// 记录分页：选一天看各项和目标比、每顿吃了什么；下面是最近 7 天的热量 / 蛋白质柱状图（只算记全的日子的平均）
+struct PhoneNutritionLog: View {
     @Environment(PhoneModel.self) private var model
     @State private var day = Date()
 
@@ -12,8 +65,7 @@ struct PhoneNutritionView: View {
         let diet = model.health.day(day, calendar: cal)
         let target = model.health.targets(on: day, calendar: cal)
 
-        NavigationStack {
-            List {
+        Group {
                 Section {
                     HStack {
                         Button { shift(-1) } label: { Image(systemName: "chevron.left") }.accessibilityLabel("前一天")
@@ -53,10 +105,6 @@ struct PhoneNutritionView: View {
                 Section("最近 7 天") {
                     WeekNutritionChart(until: day)
                 }
-            }
-            .navigationTitle("营养")
-            .toolbar { SettingsButton() }
-            .refreshable { model.reload() }
         }
     }
 
