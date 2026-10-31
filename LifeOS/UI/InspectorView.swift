@@ -44,6 +44,11 @@ struct DetailHeader: View {
             Label(Fmt.day(occurrence.start) + " · " + Fmt.when(occurrence, now: model.clock, calendar: model.calendar),
                   systemImage: "clock")
                 .foregroundStyle(.secondary)
+            if occurrence.adjusted {
+                Label(occurrence.adjustedSummary(calendar: model.calendar), systemImage: Occurrence.adjustedSystemImage)
+                    .foregroundStyle(.secondary)
+                    .help("这一次单独改过，重复规则没变")
+            }
         }
     }
 }
@@ -56,7 +61,7 @@ struct LifeDetail: View {
     var body: some View {
         DetailHeader(occurrence: occurrence)
         VStack(alignment: .leading, spacing: 6) {
-            if !item.location.isEmpty { Label(item.location, systemImage: "mappin.and.ellipse").textSelection(.enabled) }
+            if !occurrence.location.isEmpty { Label(occurrence.location, systemImage: "mappin.and.ellipse").textSelection(.enabled) }
             if let r = item.repeatRule {
                 Label(r.label + (item.repeatUntil.map { "，到 \(Fmt.shortDay($0))" } ?? ""), systemImage: "repeat")
             }
@@ -112,10 +117,27 @@ struct LifeDetail: View {
             }
         }
 
+        if item.repeatRule != nil, occurrence.seriesStart != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("这一次").font(.headline)
+                HStack {
+                    Button("只改这一次…") { model.editOnce(occurrence) }
+                        .help("改这一次的时间、标题、地点或备注，其余照常")
+                    Button("取消这一次") { model.skipOnce(occurrence) }
+                        .help("这天不显示，其余照常")
+                }
+                if occurrence.adjusted {
+                    Button("恢复成原样") { model.restoreOnce(occurrence) }
+                        .buttonStyle(.link)
+                }
+            }
+            .font(.callout)
+        }
+
         Divider()
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Button("编辑…") { model.edit(item) }
+                Button(item.repeatRule == nil ? "编辑…" : "编辑整个系列…") { model.edit(item) }
                 if item.kind != .event && item.repeatRule == nil {
                     Button(item.done ? "恢复" : "办好了") { model.toggleDone(item) }
                         .help(item.done ? "恢复成未办" : "收起来；不点也只会自然淡出")

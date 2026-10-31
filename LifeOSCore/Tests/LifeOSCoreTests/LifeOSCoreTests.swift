@@ -69,6 +69,137 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
     }
 }
 
+/// 重复事项里只改 / 取消单独一次（frontmatter 的 `exceptions`）
+@Suite struct RecurrenceExceptionTests {
+    /// 每周一、三 18:00–19:00 训练，从 2026-10-05（周一）开始
+    private func training(_ exceptions: String = "") -> LifeItem {
+        let text = "---\ntype: life-item\nkind: event\ntitle: 训练\nstart: 2026-10-05 18:00\nend: 2026-10-05 19:00\n"
+            + "location: 健身房\nrepeat: weekly:mon,wed\n" + exceptions + "---\n正文\n"
+        return LifeItem.parse(text: text, fileURL: file, calendar: cal)!
+    }
+    private func week(_ start: String) -> DateInterval {
+        DateInterval(start: d(start), end: cal.date(byAdding: .day, value: 7, to: d(start))!)
+    }
+    private func days(_ occ: [Occurrence]) -> [Int] { occ.map { cal.component(.day, from: $0.start) } }
+
+    @Test func skipsOneOccurrence() {
+        let item = training("exceptions:\n  - date: 2026-11-04      # 原本那一次的日期\n    skip: true\n")
+        #expect(item.exceptions.count == 1 && item.exceptions[0].skip)
+        let occ = Recurrence.occurrences(of: item, in: week("2026-11-02"), calendar: cal)
+        #expect(days(occ) == [2])
+        #expect(!occ[0].adjusted)
+        // 其他周照常
+        #expect(days(Recurrence.occurrences(of: item, in: week("2026-11-09"), calendar: cal)) == [9, 11])
+    }
+
+    @Test func movesTimeOnSameDay() {
+        let item = training("exceptions:\n  - date: 2026-11-04\n    start: 2026-11-04 20:00\n    end: 2026-11-04 21:00\n")
+        let occ = Recurrence.occurrences(of: item, in: week("2026-11-02"), calendar: cal)
+        #expect(days(occ) == [2, 4])
+        let moved = occ[1]
+        #expect(moved.start == d("2026-11-04 20:00") && moved.end == d("2026-11-04 21:00"))
+        #expect(moved.adjusted && moved.seriesStart == d("2026-11-04 18:00"))
+        #expect(moved.id == item.id + "@2026-11-04")
+        #expect(moved.adjustedSummary(calendar: cal) == "已调整（原 18:00）")
+        #expect(!occ[0].adjusted && occ[0].start == d("2026-11-02 18:00"))
+    }
+
+    @Test func movesToAnotherDay() {
+        // 只写 start：按原时长平移
+        let item = training("exceptions:\n  - date: 2026-11-04\n    start: 2026-11-06 20:00\n")
+        let wed = DateInterval(start: d("2026-11-04"), end: d("2026-11-05"))
+        let fri = DateInterval(start: d("2026-11-06"), end: d("2026-11-07"))
+        #expect(Recurrence.occurrences(of: item, in: wed, calendar: cal).isEmpty)
+        let occ = Recurrence.occurrences(of: item, in: fri, calendar: cal)
+        #expect(occ.count == 1 && occ[0].start == d("2026-11-06 20:00") && occ[0].end == d("2026-11-06 21:00"))
+        #expect(occ[0].adjusted && occ[0].touches(day: d("2026-11-06"), calendar: cal))
+        // 只写日期：时间沿用 18:00
+        let dateOnly = training("exceptions:\n  - date: 2026-11-04\n    start: 2026-11-05\n")
+        let thu = Recurrence.occurrences(of: dateOnly, in: DateInterval(start: d("2026-11-05"), end: d("2026-11-06")), calendar: cal)
+        #expect(thu.count == 1 && thu[0].start == d("2026-11-05 18:00") && thu[0].end == d("2026-11-05 19:00"))
+    }
+
+    @Test func changesNoteLocationAndTitleOnly() {
+        let item = training("exceptions:\n  - date: 2026-11-02\n    title: 训练（腿）\n    location: 学校体育馆\n    note: \"带护膝: 两副\"\n")
+        let occ = Recurrence.occurrences(of: item, in: week("2026-11-02"), calendar: cal)
+        #expect(days(occ) == [2, 4])
+        let o = occ[0]
+        #expect(o.title == "训练（腿）" && o.location == "学校体育馆" && o.subtitle == "学校体育馆")
+        #expect(o.note == "带护膝: 两副" && o.adjusted)
+        #expect(o.start == d("2026-11-02 18:00") && o.end == d("2026-11-02 19:00"))
+        #expect(o.adjustedSummary(calendar: cal) == "已调整 · 带护膝: 两副")
+        #expect(occ[1].title == "训练" && occ[1].location == "健身房" && occ[1].note.isEmpty && !occ[1].adjusted)
+        // 原来的系列字段不变
+        #expect(item.title == "训练" && item.location == "健身房" && item.body == "正文")
+    }
+
+    @Test func weekBoundaries() {
+        // 下周一（11-09）挪到本周日（11-08）：算本周，不算下周
+        let item = training("exceptions:\n  - date: 2026-11-09\n    start: 2026-11-08 10:00\n"
+            + "  - date: 2026-11-04\n    start: 2026-11-10 18:00\n")
+        // 本周 11-02（周一）… 11-09 0 点（不含）：周一原样，周三挪出去了，周日挪进来了
+        let this = Recurrence.occurrences(of: item, in: DateInterval(start: d("2026-11-02"), end: d("2026-11-09")), calendar: cal)
+        #expect(days(this) == [2, 8])
+        #expect(this[1].seriesStart == d("2026-11-09 18:00"))
+        // 下周：周一挪走了，周二是从上周三挪来的，周三照常
+        let next = Recurrence.occurrences(of: item, in: DateInterval(start: d("2026-11-09"), end: d("2026-11-16")), calendar: cal)
+        #expect(days(next) == [10, 11])
+        #expect(next[0].adjusted && !next[1].adjusted)
+        // 结果按时间排好
+        #expect(next.map(\.start) == next.map(\.start).sorted())
+    }
+
+    @Test func noExceptionsIsUnchanged() {
+        let plain = training()
+        #expect(plain.exceptions.isEmpty)
+        let range = DateInterval(start: d("2026-10-01"), end: d("2026-12-01"))
+        let a = Recurrence.occurrences(of: plain, in: range, calendar: cal)
+        #expect(a.count == 17 && a.allSatisfy { !$0.adjusted && $0.note.isEmpty && $0.title == "训练" })
+        #expect(a.allSatisfy { $0.seriesStart == $0.start && $0.end == $0.start.addingTimeInterval(3600) })
+        // 例外对不上任何一次（不是周一、三）或格式不对：等于没写
+        let stray = training("exceptions:\n  - date: 2026-11-03\n    skip: true\n  - skip: true\n")
+        #expect(stray.exceptions.count == 1)
+        let b = Recurrence.occurrences(of: stray, in: range, calendar: cal)
+        #expect(b.map(\.id) == a.map(\.id) && b.map(\.start) == a.map(\.start) && b.map(\.end) == a.map(\.end))
+        // 不重复的事项不受 exceptions 影响
+        let single = LifeItem.parse(text: "---\ntitle: 看牙\nstart: 2026-11-04 09:00\nexceptions:\n  - date: 2026-11-04\n    skip: true\n---\n",
+                                    fileURL: file, calendar: cal)!
+        let s = Recurrence.occurrences(of: single, in: week("2026-11-02"), calendar: cal)
+        #expect(s.count == 1 && s[0].id == single.id && s[0].seriesStart == nil && !s[0].adjusted)
+    }
+
+    @Test func writesExceptionsBackToFrontmatter() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lifeos-exc-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("训练.md")
+        let original = "---\ntype: life-item\nkind: event\ntitle: 训练\nstart: 2026-10-05 18:00\nend: 2026-10-05 19:00\n"
+            + "repeat: weekly:mon,wed\nadded_by: user\n---\n正文\n"
+        try original.write(to: url, atomically: true, encoding: .utf8)
+        let store = VaultStore(root: dir)
+        func load() -> LifeItem { LifeItem.parse(text: try! String(contentsOf: url, encoding: .utf8), fileURL: url, calendar: cal)! }
+
+        try store.setException(RecurrenceException(date: d("2026-11-04"), skip: true), forSeriesDate: d("2026-11-04 18:00"),
+                               of: load(), calendar: cal)
+        try store.setException(RecurrenceException(date: d("2026-11-02"), start: d("2026-11-02 20:00"), end: d("2026-11-02 21:00"),
+                                                   note: "改到晚上"), forSeriesDate: d("2026-11-02"), of: load(), calendar: cal)
+        var text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.contains("exceptions:\n  - date: 2026-11-02\n    start: 2026-11-02 20:00\n    end: 2026-11-02 21:00\n    note: 改到晚上\n  - date: 2026-11-04\n    skip: true\n---\n正文\n"))
+        #expect(load().exceptions.count == 2 && load().repeatRule == .weekly([2, 4]))
+        // 改普通字段不碰列表；删掉列表里的一条，再删最后一条后字段整个消失
+        try store.updateItem(at: url, set: [("added_by", "agent")])
+        #expect(load().exceptions.count == 2)
+        try store.setException(nil, forSeriesDate: d("2026-11-04"), of: load(), calendar: cal)
+        #expect(load().exceptions.map(\.date) == [d("2026-11-02")])
+        try store.setException(nil, forSeriesDate: d("2026-11-02"), of: load(), calendar: cal)
+        text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text == original.replacingOccurrences(of: "added_by: user", with: "added_by: agent"))
+        // 用 update 删掉块状字段时，缩进行一起删
+        let block = "---\na: 1\nexceptions:\n  - date: 2026-11-02\n    skip: true\nb: 2\n---\n"
+        #expect(Frontmatter.update(block, set: [("exceptions", nil)]) == "---\na: 1\nb: 2\n---\n")
+    }
+}
+
 @Suite struct ClassScheduleTests {
     @Test func parsesCommonFormats() {
         let a = ClassSchedule.parse("Tue/Thu 2:00–2:50pm")

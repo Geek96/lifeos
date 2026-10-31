@@ -18,6 +18,15 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   出行插件勾“要带”清单；物品插件快速记一件东西（新建只有名称和位置的卡）、往 `物品/想买.md` 加一行；远景插件勾项目步骤；分享的长图和 .ics 存到用户的“下载”）。
   事项正文（准备信息）由 agent 写。**永远不写 CourseOS 学期目录里的任何文件。**
 - vault 格式与 agent 规则：vault 里的 `.lifeos/RULES.md`；agent skill：[Geek96/life-manager](https://github.com/Geek96/life-manager)。
+- **重复事项的单独一次**：事项 frontmatter 的 `exceptions` 块状列表（`Frontmatter.list` / `setList` 读写，
+  其他字段仍是单行 `key: value`；`Frontmatter.update` 删改块状字段时连缩进行一起处理）。每条 `date` = 原本那一次的日期，
+  `skip: true` 取消；`start` / `end` 挪时间（可跨天；只写 `start` 按原时长平移，`start` 只写日期沿用原时刻）；`title` / `location` / `note` 只改这次。
+  `LifeItem.exceptions`（`RecurrenceException`）→ `Recurrence.occurrences` 展开时套用：挪进区间的那次即使原日期在区间外也出现；
+  `Occurrence.seriesStart` 是原本的开始、`adjusted` 标记改过、`note` 是这次的备注、`adjustedSummary` 给界面用的文字；
+  id 仍按原日期（`路径@YYYY-MM-DD`），挪了也能保持选中。没有 `exceptions` 的文件行为不变，不重复的事项忽略它。
+  电脑版检查器“这一次”：只改这一次…（`OccurrenceEditorSheet`）/ 取消这一次 / 恢复成原样，经 `VaultStore.setException` 写回；
+  拖动已调整过的那一次只改它自己，拖动其他的仍是整个系列。界面用 `Occurrence.adjustedSystemImage` 图标 + 文字标出（不只靠颜色）。
+  手机版只显示。注意：改系列的 start（编辑或拖动整个系列）不会跟着改 `exceptions` 的 date，挪了日期后旧例外可能对不上。
 - `templates/vault/` 是新 vault 的模板（RULES.md 第 11 版、入口文件、收件箱、lifeos.json 示例）。
 
 ## 插件

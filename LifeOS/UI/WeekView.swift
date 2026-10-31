@@ -147,7 +147,12 @@ struct WeekView: View {
         let isSelected = model.selected?.id == o.id
 
         VStack(alignment: .leading, spacing: 1) {
-            Text(o.title).font(.caption.weight(.semibold)).lineLimit(height > 34 ? 2 : 1)
+            HStack(spacing: 2) {
+                if o.adjusted {
+                    Image(systemName: Occurrence.adjustedSystemImage).font(.system(size: 9, weight: .semibold))
+                }
+                Text(o.title).font(.caption.weight(.semibold)).lineLimit(height > 34 ? 2 : 1)
+            }
             if height > 34 {
                 Text(o.style == .classSession ? o.subtitle : "\(Fmt.time(b.start))–\(Fmt.time(b.end))")
                     .font(.caption2).lineLimit(1).opacity(0.8)
@@ -178,9 +183,9 @@ struct WeekView: View {
                     model.move(o, to: moved)
                 }
             }, isEnabled: draggable)
-        .help(draggable ? "\(o.title)（拖动改时间，双击编辑）" : o.title)
+        .help((draggable ? "\(o.title)（拖动改时间，双击编辑）" : o.title) + adjustedSuffix(o))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(o.style.label)：\(o.title)，\(Fmt.time(b.start)) 到 \(Fmt.time(b.end))")
+        .accessibilityLabel("\(o.style.label)：\(o.title)，\(Fmt.time(b.start)) 到 \(Fmt.time(b.end))" + adjustedSuffix(o))
     }
 
     /// 拖动对齐：横向按整天，纵向按 15 分钟
@@ -193,7 +198,7 @@ struct WeekView: View {
     private func marker(_ o: Occurrence, x: CGFloat, colWidth: CGFloat, day: Date) -> some View {
         let tint = Theme.tint(o.style)
         return HStack(spacing: 3) {
-            Image(systemName: Theme.icon(o.style)).font(.system(size: 9, weight: .bold))
+            Image(systemName: o.adjusted ? Occurrence.adjustedSystemImage : Theme.icon(o.style)).font(.system(size: 9, weight: .bold))
             Text("\(Fmt.time(o.start)) \(o.title)").font(.caption2.weight(.medium)).lineLimit(1)
         }
         .padding(.horizontal, 4).padding(.vertical, 1)
@@ -206,8 +211,13 @@ struct WeekView: View {
         .offset(x: x + 3, y: y(for: o.start, day: day) - 1)
         .zIndex(5)
         .onTapGesture { model.selected = o; model.showInspector = true }
-        .help(o.title)
-        .accessibilityLabel("\(o.style.label)：\(o.title)，\(Fmt.time(o.start))")
+        .help(o.title + adjustedSuffix(o))
+        .accessibilityLabel("\(o.style.label)：\(o.title)，\(Fmt.time(o.start))" + adjustedSuffix(o))
+    }
+
+    /// 悬停 / 读屏补一句“已调整（原 …）”
+    private func adjustedSuffix(_ o: Occurrence) -> String {
+        o.adjusted ? "，" + o.adjustedSummary(calendar: model.calendar) : ""
     }
 }
 
@@ -287,6 +297,9 @@ struct Chip: View {
         HStack(spacing: 3) {
             Image(systemName: Theme.icon(o.style)).font(.system(size: 9, weight: .semibold))
             Text(o.title).lineLimit(1)
+            if o.adjusted {
+                Image(systemName: Occurrence.adjustedSystemImage).font(.system(size: 9, weight: .semibold))
+            }
         }
         .font(.caption2)
         .padding(.horizontal, 4).padding(.vertical, 1.5)
@@ -299,8 +312,8 @@ struct Chip: View {
         .contentShape(Rectangle())
         .onTapGesture { model.selected = o; model.showInspector = true }
         .onTapGesture(count: 2) { if let item = model.item(for: o) { model.edit(item) } }
-        .help("\(o.style.label)：\(o.title)")
-        .accessibilityLabel("\(o.style.label)：\(o.title)")
+        .help("\(o.style.label)：\(o.title)" + (o.adjusted ? "，" + o.adjustedSummary(calendar: model.calendar) : ""))
+        .accessibilityLabel("\(o.style.label)：\(o.title)" + (o.adjusted ? "，" + o.adjustedSummary(calendar: model.calendar) : ""))
     }
 }
 

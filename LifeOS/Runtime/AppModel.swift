@@ -67,6 +67,8 @@ final class AppModel {
     var selected: Occurrence?
     var showInspector = true
     var editor: EditorRequest?
+    /// “只改这一次”表单正在编辑的那一次（重复事项）
+    var onceEditor: Occurrence?
     var captureFocusRequest = 0
     /// 每分钟走一次，让“现在”线和淡出跟上
     var clock = Date()
@@ -320,11 +322,20 @@ final class AppModel {
         }
     }
 
-    /// 拖动改时间（重复事项拖动的是整个系列）
+    /// 拖动改时间（重复事项拖动的是整个系列；已经单独调整过的那一次只挪它自己）
     func move(_ occurrence: Occurrence, to newStart: Date) {
         guard let item = item(for: occurrence), let store else { return }
         let shift = newStart.timeIntervalSince(occurrence.start)
         guard abs(shift) >= 60 else { return }
+        if occurrence.adjusted, item.repeatRule != nil, let series = occurrence.seriesStart {
+            var e = exception(for: occurrence, of: item) ?? RecurrenceException(date: series)
+            e.start = newStart
+            e.end = occurrence.end.map { $0.addingTimeInterval(shift) }
+            let f = DateFormatter()
+            f.dateFormat = "M月d日 HH:mm"
+            setException(e, for: occurrence, of: item, message: "已移到 \(f.string(from: newStart))（只改这一次）")
+            return
+        }
         let before = try? String(contentsOf: item.fileURL, encoding: .utf8)
         do {
             try store.move(item, to: item.start.addingTimeInterval(shift), calendar: calendar)
@@ -335,6 +346,51 @@ final class AppModel {
             feedback.show("已移到 \(f.string(from: newStart))\(note)", undo: restorer(item.fileURL, before))
         } catch {
             feedback.show("没能移动：\(error.localizedDescription)")
+        }
+    }
+
+    // MARK: 重复事项里的单独一次（写 frontmatter 的 exceptions）
+
+    /// 这一次现有的例外（没有就是 nil）
+    func exception(for occurrence: Occurrence, of item: LifeItem) -> RecurrenceException? {
+        guard let series = occurrence.seriesStart else { return nil }
+        return item.exceptions.last { calendar.isDate($0.date, inSameDayAs: series) }
+    }
+
+    func editOnce(_ occurrence: Occurrence) {
+        onceEditor = occurrence
+    }
+
+    /// 取消这一次（那天不显示，其余照常）
+    func skipOnce(_ occurrence: Occurrence) {
+        guard let item = item(for: occurrence), let series = occurrence.seriesStart else { return }
+        selected = nil
+        setException(RecurrenceException(date: series, skip: true), for: occurrence, of: item,
+                     message: "已取消 \(Fmt.shortDay(series)) 这一次")
+    }
+
+    /// 这一次恢复成和系列一样
+    func restoreOnce(_ occurrence: Occurrence) {
+        guard let item = item(for: occurrence) else { return }
+        setException(nil, for: occurrence, of: item, message: "这一次已恢复原样")
+    }
+
+    /// 写入这一次的例外（nil = 删除）；可撤销
+    func setException(_ e: RecurrenceException?, for occurrence: Occurrence, of item: LifeItem, message: String) {
+        guard let store, let series = occurrence.seriesStart else { return }
+        let before = try? String(contentsOf: item.fileURL, encoding: .utf8)
+        do {
+            try store.setException(e, forSeriesDate: series, of: item, calendar: calendar)
+            reload()
+            // id 按原本的日期，挪了时间也能继续选中
+            if let s = selected, s.id == occurrence.id {
+                let range = DateInterval(start: series.addingTimeInterval(-60 * 86400), duration: 120 * 86400)
+                selected = Recurrence.occurrences(of: self.item(for: occurrence) ?? item, in: range, calendar: calendar)
+                    .first { $0.id == occurrence.id }
+            }
+            feedback.show(message, undo: restorer(item.fileURL, before))
+        } catch {
+            feedback.show("没能保存：\(error.localizedDescription)")
         }
     }
 

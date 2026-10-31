@@ -35,6 +35,18 @@ created: 2026-10-15
 ```
 - 只有真正“过了会出事”的才用 deadline（续签、交税、退租、退课截止）。“这周内买菜”“11 月前换护照”用 window。
 - 不要给事项加 checklist、进度、打分字段。
+- 重复事项只改 / 取消其中一次：在 frontmatter 加 `exceptions` 列表，`repeat` 等系列字段不动。每条用 `date` 写**原本那一次的日期**对上是哪一次；
+  `skip: true` = 这次取消（那天不显示）；`start` / `end` = 这次挪到别的时间，可以挪到另一天（只写 `start` 按原时长平移；`start` 只写日期时沿用原来的时刻）；
+  `title` / `location` / `note` = 只改这次的标题、地点、备注。对不上任何一次的条目不起作用。App 的“只改这一次 / 取消这一次”也写这里。
+  ```yaml
+  exceptions:
+    - date: 2026-11-03      # 原本那一次的日期
+      skip: true
+    - date: 2026-11-05
+      start: 2026-11-05 20:00
+      end: 2026-11-05 21:00
+      note: 改到晚上
+  ```
 
 ## 和 CourseOS 的关系（单向只读）
 - LifeOS 只**读** CourseOS 学期目录（`lifeos.json` 的 `courseos.semester`）：`courseos.json`、

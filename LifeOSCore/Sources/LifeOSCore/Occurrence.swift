@@ -46,10 +46,17 @@ public struct Occurrence: Identifiable, Hashable, Sendable {
     public var workloadHours: Double?
     public var sourceURL: URL?
     public var location: String
+    /// 重复事项的这一次原本的开始时刻（按它对上 `exceptions` 的 date）；不重复的事项、非生活事项为 nil
+    public var seriesStart: Date?
+    /// 这一次被单独改过（时间、标题、地点或备注；见 `RecurrenceException`）
+    public var adjusted: Bool
+    /// 只属于这一次的备注（例外里的 `note`）
+    public var note: String
 
     public init(id: String, style: Style, title: String, subtitle: String = "", start: Date, end: Date? = nil,
                 allDay: Bool = false, done: Bool = false, itemID: String? = nil, courseItemID: String? = nil,
-                course: String? = nil, workloadHours: Double? = nil, sourceURL: URL? = nil, location: String = "") {
+                course: String? = nil, workloadHours: Double? = nil, sourceURL: URL? = nil, location: String = "",
+                seriesStart: Date? = nil, adjusted: Bool = false, note: String = "") {
         self.id = id
         self.style = style
         self.title = title
@@ -64,6 +71,27 @@ public struct Occurrence: Identifiable, Hashable, Sendable {
         self.workloadHours = workloadHours
         self.sourceURL = sourceURL
         self.location = location
+        self.seriesStart = seriesStart
+        self.adjusted = adjusted
+        self.note = note
+    }
+
+    /// 界面上“已调整”的图标（和文字一起用，不只靠颜色）
+    public static let adjustedSystemImage = "pencil.circle"
+
+    /// 调整过的这一次的说明：“已调整（原 11月5日 18:00）· 备注”；没调整时为空
+    public func adjustedSummary(calendar: Calendar = .current) -> String {
+        guard adjusted else { return "" }
+        var parts = ["已调整"]
+        if let s = seriesStart, s != start {
+            let df = DateFormatter()
+            df.locale = Locale(identifier: "zh_CN")
+            df.timeZone = calendar.timeZone
+            df.dateFormat = allDay ? "M月d日" : (calendar.isDate(s, inSameDayAs: start) ? "HH:mm" : "M月d日 HH:mm")
+            parts[0] += "（原 \(df.string(from: s))）"
+        }
+        if !note.isEmpty { parts.append(note) }
+        return parts.joined(separator: " · ")
     }
 
     /// 占用时间的块（能和别的块冲突）：约定、上课、考试（有结束时间或带具体时刻的考试按 2 小时算）
@@ -95,23 +123,83 @@ public struct Occurrence: Identifiable, Hashable, Sendable {
 
 /// 把生活事项展开成某个时间段内的出现（重复规则在这里展开）。
 public enum Recurrence {
+    /// 展开时套用 `exceptions`：跳过取消的那次；改过时间 / 标题 / 地点 / 备注的那次按改后的样子出现（`adjusted`）。
+    /// 挪到区间里的那一次即使原本的日期在区间外也会出现；挪出区间的则不出现。没有例外时和原来完全一样。
     public static func occurrences(of item: LifeItem, in range: DateInterval, calendar: Calendar = .current) -> [Occurrence] {
-        starts(of: item, in: range, calendar: calendar).map { s in
-            let shift = s.timeIntervalSince(item.start)
-            let end: Date? = {
-                switch item.kind {
-                case .event: return s.addingTimeInterval(item.duration)
-                case .window: return item.end.map { $0.addingTimeInterval(shift) } ?? endOfDay(s, calendar)
-                case .deadline: return nil
-                }
-            }()
-            let style: Occurrence.Style = item.kind == .event ? .event : item.kind == .deadline ? .deadline : .window
-            return Occurrence(
-                id: item.repeatRule == nil ? item.id : item.id + "@" + DateText.format(s, withTime: false, calendar: calendar),
-                style: style, title: item.title, subtitle: item.location,
-                start: s, end: end, allDay: item.kind == .window || (item.kind == .event && item.allDay),
-                done: item.done, itemID: item.id, location: item.location)
+        let originals = starts(of: item, in: range, calendar: calendar)
+        guard item.repeatRule != nil, !item.exceptions.isEmpty else {
+            return originals.map { occurrence(of: item, at: $0, calendar: calendar) }
         }
+        // 同一天写了多条时以最后一条为准
+        var byDay: [Date: RecurrenceException] = [:]
+        for e in item.exceptions { byDay[calendar.startOfDay(for: e.date)] = e }
+
+        var result: [Occurrence] = []
+        var seen = Set<Date>()
+        for s in originals {
+            let day = calendar.startOfDay(for: s)
+            seen.insert(day)
+            guard let e = byDay[day] else {
+                result.append(occurrence(of: item, at: s, calendar: calendar))
+                continue
+            }
+            if e.skip { continue }
+            let o = occurrence(of: item, at: s, applying: e, calendar: calendar)
+            if overlaps(o, range) { result.append(o) }
+        }
+        // 原本在区间外、挪进区间的那几次
+        for (day, e) in byDay where !e.skip && e.start != nil && !seen.contains(day) {
+            guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: day),
+                  let s = starts(of: item, in: DateInterval(start: day, end: dayEnd), calendar: calendar)
+                    .first(where: { calendar.isDate($0, inSameDayAs: day) }) else { continue }
+            let o = occurrence(of: item, at: s, applying: e, calendar: calendar)
+            if overlaps(o, range) { result.append(o) }
+        }
+        return result.sorted { $0.start < $1.start }
+    }
+
+    /// 原样的一次（开始于 s）
+    static func occurrence(of item: LifeItem, at s: Date, calendar: Calendar) -> Occurrence {
+        let shift = s.timeIntervalSince(item.start)
+        let end: Date? = {
+            switch item.kind {
+            case .event: return s.addingTimeInterval(item.duration)
+            case .window: return item.end.map { $0.addingTimeInterval(shift) } ?? endOfDay(s, calendar)
+            case .deadline: return nil
+            }
+        }()
+        let style: Occurrence.Style = item.kind == .event ? .event : item.kind == .deadline ? .deadline : .window
+        return Occurrence(
+            id: item.repeatRule == nil ? item.id : item.id + "@" + DateText.format(s, withTime: false, calendar: calendar),
+            style: style, title: item.title, subtitle: item.location,
+            start: s, end: end, allDay: item.kind == .window || (item.kind == .event && item.allDay),
+            done: item.done, itemID: item.id, location: item.location,
+            seriesStart: item.repeatRule == nil ? nil : s)
+    }
+
+    /// 套用例外后的一次。id 仍按原本的日期，选中状态不会因为挪了时间而丢。
+    static func occurrence(of item: LifeItem, at s: Date, applying e: RecurrenceException, calendar: Calendar) -> Occurrence {
+        var o = occurrence(of: item, at: s, calendar: calendar)
+        if let newStart = e.start {
+            let delta = newStart.timeIntervalSince(o.start)
+            o.start = newStart
+            o.end = o.end.map { $0.addingTimeInterval(delta) }
+        }
+        if var newEnd = e.end, item.kind != .deadline {
+            // 时间窗的结束日按当天结束算（和 LifeItem.parse 一致）
+            if item.kind == .window { newEnd = endOfDay(newEnd, calendar) }
+            if newEnd >= o.start { o.end = newEnd }
+        }
+        if let t = e.title { o.title = t }
+        if let l = e.location { o.location = l; o.subtitle = l }
+        o.note = e.note ?? ""
+        o.adjusted = !e.isEmpty
+        return o
+    }
+
+    /// 和区间有没有交集（与 `starts` 里的判断一致）
+    static func overlaps(_ o: Occurrence, _ range: DateInterval) -> Bool {
+        o.start < range.end && (o.end ?? o.start) >= range.start
     }
 
     /// 某个事项在区间内的所有开始时刻（不重复的事项：只要和区间有交集就返回它自己）

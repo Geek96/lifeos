@@ -19,11 +19,18 @@ struct OccurrenceRow: View {
                 .frame(width: 18)
                 .accessibilityLabel(o.style.label)
             VStack(alignment: .leading, spacing: 2) {
-                Text(o.title)
-                    .strikethrough(o.done)
-                    .lineLimit(1)
-                if !o.subtitle.isEmpty {
-                    Text(o.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(o.title)
+                        .strikethrough(o.done)
+                        .lineLimit(1)
+                    if o.adjusted {
+                        Image(systemName: Occurrence.adjustedSystemImage).font(.caption).foregroundStyle(.secondary)
+                            .accessibilityLabel("已调整")
+                    }
+                }
+                let sub = [o.subtitle, o.adjustedSummary(calendar: model.calendar)].filter { !$0.isEmpty }.joined(separator: " · ")
+                if !sub.isEmpty {
+                    Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 8)

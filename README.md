@@ -13,6 +13,8 @@
 - **收件箱**：随手记一句，交给 agent（life-manager skill）整理，它会先问你再放进日历
 - **准备信息**：选中事项，让 agent 查地址、路程、要带的材料，写进事项正文
 - 周视图拖动改时间（15 分钟对齐、可跨天），所有改动可撤销；过去的事自然淡出
+- **重复事项只改一次**：取消某一次、只挪某一次的时间（可以挪到另一天）、只改某一次的标题 / 地点 / 备注，
+  重复规则不动；改过的那一次带 ✎ 图标和“已调整（原 …）”字样，电脑和手机都显示
 
 ## 构建
 
@@ -31,6 +33,20 @@ open build.noindex/Build/Products/Debug/LifeOS.app
 ## 准备 vault
 
 数据都在一个 vault 文件夹里（默认 `~/Documents/LifeOS`，首次打开可选其他位置），每件事一个 Markdown 文件，Obsidian 可读。
+
+事项文件的完整格式见 vault 里的 `.lifeos/RULES.md`。重复事项里单独一次的改动写在 frontmatter 的 `exceptions` 列表，
+用 `date`（原本那一次的日期）对上是哪一次：
+
+```yaml
+repeat: weekly:mon,wed
+exceptions:
+  - date: 2026-11-03      # 这次取消
+    skip: true
+  - date: 2026-11-05      # 这次挪到晚上（也可以挪到另一天）
+    start: 2026-11-05 20:00
+    end: 2026-11-05 21:00
+    note: 改到晚上        # 也可以写 title / location，只改这一次
+```
 
 1. 把 `templates/vault/` 复制成你的 vault，按需改 `lifeos.json`（CourseOS 学期目录、上课起止日、section）。
 2. 给 agent 装 skill：`npx skills add Geek96/life-manager`（或把 `skills/life-manager` 链接进 `~/.claude/skills/`）。

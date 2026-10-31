@@ -69,6 +69,29 @@ public struct VaultStore: Sendable {
         try updateItem(at: item.fileURL, set: changes)
     }
 
+    /// 只改重复事项里的某一次：写入（或替换）`exceptions` 里这一天的那条；传 nil 或空改动 = 删掉这条（恢复原样）。
+    /// 重复规则和其他字段不动；同一天原有的多条一并换掉。
+    public func setException(_ exception: RecurrenceException?, forSeriesDate date: Date, of item: LifeItem,
+                             calendar: Calendar = .current) throws {
+        let text = try String(contentsOf: item.fileURL, encoding: .utf8)
+        let day = calendar.startOfDay(for: date)
+        let withTime = item.startHasTime && item.kind != .window
+        // 现有的条目按原样（字符串）保留，只换这一天的
+        var raw = Frontmatter.list(text, key: "exceptions")
+        raw.removeAll { $0["date"].flatMap { DateText.parse($0, calendar: calendar) }.map(calendar.startOfDay) == day }
+        var items: [[(String, String)]] = raw.map { dict in
+            let order = ["date", "skip", "start", "end", "title", "location", "note"]
+            return order.compactMap { k in dict[k].map { (k, $0) } }
+                + dict.keys.filter { !order.contains($0) }.sorted().map { ($0, dict[$0]!) }
+        }
+        if var e = exception, !e.isEmpty {
+            e.date = day
+            items.append(e.fields(withTime: withTime, calendar: calendar))
+        }
+        items.sort { ($0.first?.1 ?? "") < ($1.first?.1 ?? "") }
+        try Frontmatter.setList(text, key: "exceptions", items: items).write(to: item.fileURL, atomically: true, encoding: .utf8)
+    }
+
     static func hoursText(_ h: Double) -> String {
         h == h.rounded() ? "\(Int(h))h" : String(format: "%.1fh", h)
     }

@@ -70,6 +70,10 @@ struct MainView: View {
             ItemEditorSheet(request: request)
                 .environment(model)
         }
+        .sheet(item: $model.onceEditor) { o in
+            OccurrenceEditorSheet(occurrence: o)
+                .environment(model)
+        }
         .frame(minWidth: Self.windowMinWidth, minHeight: 760)
     }
 }

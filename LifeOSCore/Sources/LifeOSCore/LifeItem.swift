@@ -37,11 +37,13 @@ public struct LifeItem: Identifiable, Hashable, Sendable {
     public var body: String
     /// 属于哪个插件（如 `health`）；空 = 普通事项
     public var plugin: String
+    /// 重复事项里单独某一次的改动（frontmatter 的 `exceptions`）；不重复的事项忽略
+    public var exceptions: [RecurrenceException]
 
     public init(fileURL: URL, kind: Kind, title: String, start: Date, end: Date? = nil, startHasTime: Bool = true,
                 allDay: Bool = false, location: String = "", repeatRule: RepeatRule? = nil, repeatUntil: Date? = nil,
                 remindDays: Int = 3, estimateHours: Double? = nil, done: Bool = false, addedBy: String = "user",
-                body: String = "", plugin: String = "") {
+                body: String = "", plugin: String = "", exceptions: [RecurrenceException] = []) {
         self.fileURL = fileURL
         self.kind = kind
         self.title = title
@@ -58,6 +60,7 @@ public struct LifeItem: Identifiable, Hashable, Sendable {
         self.addedBy = addedBy
         self.body = body
         self.plugin = plugin
+        self.exceptions = exceptions
     }
 
     /// event 的时长（秒）；没写结束时默认 1 小时
@@ -96,8 +99,71 @@ public struct LifeItem: Identifiable, Hashable, Sendable {
             done: Frontmatter.bool(f["done"]) ?? false,
             addedBy: f["added_by"] ?? "user",
             body: doc.body.trimmingCharacters(in: .whitespacesAndNewlines),
-            plugin: f["plugin"]?.lowercased() ?? ""
+            plugin: f["plugin"]?.lowercased() ?? "",
+            exceptions: Frontmatter.list(text, key: "exceptions").compactMap {
+                RecurrenceException.parse($0, seriesStart: start, seriesHasTime: DateText.hasTime(startText), calendar: calendar)
+            }
         )
+    }
+}
+
+/// 重复事项里单独一次的改动。`date` 是原本那一次的日期（0 点），用来对上是哪一次。
+/// - `skip: true`：这一次取消，不显示。
+/// - `start` / `end`：这一次挪到别的时间（可以挪到另一天）；只写 `start` 时按原时长平移。
+/// - `title` / `location` / `note`：只改这一次的标题、地点、备注。
+public struct RecurrenceException: Hashable, Sendable {
+    public var date: Date
+    public var skip: Bool
+    public var start: Date?
+    public var end: Date?
+    public var title: String?
+    public var location: String?
+    public var note: String?
+
+    public init(date: Date, skip: Bool = false, start: Date? = nil, end: Date? = nil,
+                title: String? = nil, location: String? = nil, note: String? = nil) {
+        self.date = date
+        self.skip = skip
+        self.start = start
+        self.end = end
+        self.title = title
+        self.location = location
+        self.note = note
+    }
+
+    /// 除了 date 什么都没写 = 不算改动
+    public var isEmpty: Bool {
+        !skip && start == nil && end == nil && title == nil && location == nil && note == nil
+    }
+
+    /// 从列表里的一项解析。没有能读懂的 `date` 时返回 nil。
+    /// `start` 只写了日期而系列本身带时刻时，沿用系列的时刻（“挪到周四，时间不变”）；
+    /// 这种情况下只写日期的 `end` 不用，结束按原时长算。
+    static func parse(_ f: [String: String], seriesStart: Date, seriesHasTime: Bool, calendar: Calendar) -> RecurrenceException? {
+        guard let dateText = f["date"], let date = DateText.parse(dateText, calendar: calendar) else { return nil }
+        func when(_ key: String) -> Date? {
+            guard let t = f[key], let d = DateText.parse(t, calendar: calendar) else { return nil }
+            guard !DateText.hasTime(t), seriesHasTime else { return d }
+            if key == "end" { return nil }
+            let hm = calendar.dateComponents([.hour, .minute], from: seriesStart)
+            return calendar.date(bySettingHour: hm.hour ?? 0, minute: hm.minute ?? 0, second: 0, of: d)
+        }
+        func text(_ key: String) -> String? { f[key].flatMap { $0.isEmpty ? nil : $0 } }
+        return RecurrenceException(date: calendar.startOfDay(for: date), skip: Frontmatter.bool(f["skip"]) ?? false,
+                                   start: when("start"), end: when("end"),
+                                   title: text("title"), location: text("location"), note: text("note"))
+    }
+
+    /// 写回 frontmatter 的字段（按固定顺序）
+    public func fields(withTime: Bool, calendar: Calendar = .current) -> [(String, String)] {
+        var r: [(String, String)] = [("date", DateText.format(date, withTime: false, calendar: calendar))]
+        if skip { r.append(("skip", "true")) }
+        if let start { r.append(("start", DateText.format(start, withTime: withTime, calendar: calendar))) }
+        if let end { r.append(("end", DateText.format(end, withTime: withTime, calendar: calendar))) }
+        if let title { r.append(("title", title)) }
+        if let location { r.append(("location", location)) }
+        if let note { r.append(("note", note)) }
+        return r
     }
 }
 
