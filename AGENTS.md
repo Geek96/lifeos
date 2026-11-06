@@ -27,7 +27,7 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   电脑版检查器“这一次”：只改这一次…（`OccurrenceEditorSheet`）/ 取消这一次 / 恢复成原样，经 `VaultStore.setException` 写回；
   拖动已调整过的那一次只改它自己，拖动其他的仍是整个系列。界面用 `Occurrence.adjustedSystemImage` 图标 + 文字标出（不只靠颜色）。
   手机版只显示。注意：改系列的 start（编辑或拖动整个系列）不会跟着改 `exceptions` 的 date，挪了日期后旧例外可能对不上。
-- `templates/vault/` 是新 vault 的模板（RULES.md 第 12 版、入口文件、收件箱、lifeos.json 示例）。
+- `templates/vault/` 是新 vault 的模板（RULES.md 第 13 版、入口文件、收件箱、lifeos.json 示例）。
 
 ## 插件
 
@@ -66,6 +66,12 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   （checkpoint 常和已有事项重合，不上日历）。界面 `LifeOS/UI/VisionViews.swift`：愿景 / 项目 / 奇思妙想，时间甬道 `VisionCorridor`。
   清单型愿景的每个地方按“行程”列（或名字）对应一个出行，点开跳到出行详情页，返回回到愿景（`tripReturnVisionID`）。
   内容都由 agent 写；App 只会改项目步骤的勾（`VisionStore.toggleStep`，核对那一行内容才改）。
+- **收藏**（`plugins.cards`）：`LifeOSCore/Cards.swift`：`CardsStore` 读 `收藏/卡池/*/卡池.json`、`收藏/积分.md`（只加不减的账本，按“编号”去重）、
+  `收藏/抽卡记录.md`；`CardPoints.awards` 从健康、专注、远景、出行算出该得的积分（`AppModel.loadCards` 每次 reload 补上没记的）；
+  `CardDrawer.draw` 抽卡（概率、十连保底史诗、9 连普通保底、新卡优先、重复退分）。电脑版 `CardsView.swift`：积分、抽卡（`DrawStage` 卡包抖动 → 光 → 卡背发光、点开翻面，有声音）、
+  陈列馆（按小套装，空槽显示编号）、`CardDetail`（鼠标倾斜、翻面、名画看原图）。卡面 `LifeOS/UI/Shared/CardFace.swift` 两端共用
+  （稀有度边框：铜 / 银扫光 / 金扫光 + 光晕 / 镭射彩虹边框 + 彩虹膜 + 星点）。手机 `PhoneCardsView.swift` 只看：今天页底部进入，细看时陀螺仪倾斜、翻面有声音和震动。
+  卡池素材（奇观图用 mflux + Z-Image-Turbo 本地画，名画是公有领域原图）不在仓库里。
 - **听**（`plugins.podcast`）：只在手机版有界面（底栏第四个“听”），电脑设置里只有开关。播放手机上另选的一个音频文件夹
   （比如 Möbius Sync 同步过来的 `SharedDocs/讲书/`），和 vault 是两个 bookmark（`PodcastModel.bookmarkKey`）。
   `LifeOSCore/Podcast.swift`：`PodcastLibrary.scan` 把每个子文件夹当一个节目（选的文件夹本身有音频也算一个），`.` / `_` 开头的跳过；
@@ -142,4 +148,5 @@ designated requirement 绑定证书，重新编译后不变，macOS 不会反复
    手机版：`xcodebuild -project LifeOS.xcodeproj -scheme LifeOSPhone -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath build.noindex build`
 3. 改了 UI 就打开 App 肉眼确认（今天 / 周 / 月 / 收件箱 / 检查器）。
    电脑版调试参数（只在 Debug）：`-vaultPath <副本>` 换 vault，`-debugPage rest` 直接打开时间管理页，
-   `-debugSnapshot <目录>` 把专注的 日 / 周 / 月 离屏画成 PNG 后退出（没有截屏权限时用）。
+   `-debugSnapshot <目录>` 把专注的 日 / 周 / 月 和卡面离屏画成 PNG 后退出（没有截屏权限时用）。
+   手机版 `-debugCards 1` 启动时直接打开收藏。

@@ -1491,3 +1491,126 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
         #expect(nights.first?.minutes == 480)
     }
 }
+
+@Suite struct CardsTests {
+    private func tempVault() -> URL {
+        let u = FileManager.default.temporaryDirectory.appendingPathComponent("lifeos-test-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
+        return u
+    }
+
+    /// 固定种子的随机数，测试可重复
+    private struct Seeded: RandomNumberGenerator {
+        var state: UInt64
+        mutating func next() -> UInt64 {
+            state &+= 0x9E3779B97F4A7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            return z ^ (z >> 31)
+        }
+    }
+
+    private func pool(commons: Int = 6, rares: Int = 3, epics: Int = 2, legends: Int = 1) -> CardPool {
+        var cards: [CollectibleCard] = []
+        for (r, n) in [(CardRarity.common, commons), (.rare, rares), (.epic, epics), (.legend, legends)] {
+            for i in 0..<n {
+                cards.append(CollectibleCard(id: "\(r.rawValue)\(i)", name: "\(r.label)\(i)", nameEn: "", set: "A", rarity: r,
+                                             facts: [], story: "", fun: "", image: "x.jpg"))
+            }
+        }
+        return CardPool(id: "p", name: "池", nameEn: "", style: .poster, order: 1, credit: "", cards: cards, folder: file)
+    }
+
+    @Test func tenPullGuaranteesEpicAndPrefersNewCards() {
+        var rng = Seeded(state: 7)
+        for _ in 0..<30 {
+            let draws = CardDrawer.draw(count: 10, from: pool(), snapshot: .empty, rng: &rng)
+            #expect(draws.count == 10)
+            #expect(draws.contains { $0.rarity >= .epic })
+            #expect(draws.reduce(0) { $0 + $1.cost } == CardDrawer.tenCost)
+            // 同一稀有度没抽完之前不重复
+            for r in CardRarity.allCases {
+                let got = draws.filter { $0.rarity == r }
+                let total = pool().cards.filter { $0.rarity == r }.count
+                #expect(Set(got.map(\.card)).count == min(got.count, total))
+            }
+            #expect(draws.allSatisfy { $0.isNew == ($0.refund == 0) })
+        }
+    }
+
+    @Test func pityAfterNineCommons() {
+        var rng = Seeded(state: 1)
+        let nine = (0..<9).map { _ in CardDraw(time: d("2026-11-06"), pool: "p", card: "common0", rarity: .common, isNew: false,
+                                                 cost: 20, refund: 5, free: false) }
+        let snap = CardsSnapshot(pools: [], ledger: [], draws: nine, since: nil)
+        for _ in 0..<20 {
+            #expect(CardDrawer.draw(count: 1, from: pool(), snapshot: snap, rng: &rng)[0].rarity >= .rare)
+        }
+    }
+
+    @Test func duplicatesRefundAndMissingRarityFallsBack() {
+        var rng = Seeded(state: 3)
+        let p = pool(commons: 1, rares: 0, epics: 0, legends: 0)
+        let draws = CardDrawer.draw(count: 10, from: p, snapshot: .empty, rng: &rng)
+        #expect(draws.allSatisfy { $0.rarity == .common })
+        #expect(draws.filter(\.isNew).count == 1)
+        #expect(draws.dropFirst().allSatisfy { $0.refund == CardRarity.common.refund })
+    }
+
+    @Test func ledgerAndDrawsRoundTripAndBalance() throws {
+        let vault = tempVault()
+        let store = CardsStore(vault: vault)
+        let e = [PointsEntry(date: d("2026-11-05"), text: "蛋白质达标", points: 3, key: "diet-protein:2026-11-05"),
+                 PointsEntry(date: d("2026-11-05"), text: "练了一次：力量 | 上肢", points: 5, key: "train:a.md")]
+        #expect(try store.appendPoints(e, start: d("2026-11-02"), calendar: cal) == 2)
+        // 同一件事不会记两次
+        #expect(try store.appendPoints(e + [PointsEntry(date: d("2026-11-06"), text: "记了睡眠", points: 1, key: "sleep:2026-11-06")],
+                                       start: d("2026-11-02"), calendar: cal) == 1)
+        let p = pool()
+        try store.appendDraws([CardDraw(time: d("2026-11-06 10:00"), pool: "p", card: "rare0", rarity: .rare, isNew: true, cost: 0, refund: 0, free: true),
+                               CardDraw(time: d("2026-11-06 10:01"), pool: "p", card: "rare0", rarity: .rare, isNew: false, cost: 20, refund: 10, free: false)],
+                              pools: [p], calendar: cal)
+        let snap = store.load(calendar: cal)
+        #expect(snap.since == d("2026-11-02"))
+        #expect(snap.ledger.count == 3 && snap.earned == 9)
+        #expect(snap.ledger[1].text == "练了一次：力量 ／ 上肢")
+        #expect(snap.draws.count == 2 && snap.draws[0].free && !snap.draws[1].isNew)
+        #expect(snap.balance == 9 - 20 + 10)
+        #expect(snap.owned["p/rare0"] == 2)
+        // 11/02 是周一：11/08 周日送一抽，已经用掉一次
+        #expect(snap.freeDraws(now: d("2026-11-08 09:00"), calendar: cal) == 0)
+        #expect(snap.freeDraws(now: d("2026-11-15 09:00"), calendar: cal) == 1)
+    }
+
+    @Test func pointsFromRecords() {
+        var health = HealthSnapshot.empty
+        health.targets = Nutrition(kcal: 2800, protein: 140)
+        let n = { (k: Double, p: Double) in Nutrition(kcal: k, protein: p) }
+        health.days = [
+            DietDay(date: d("2026-11-03"), meals: [Meal(id: 0, time: "12:00", text: "a", nutrition: n(2900, 150))]),
+            DietDay(date: d("2026-11-04"), meals: [Meal(id: 0, time: "12:00", text: "a", nutrition: n(2000, 100))], complete: false),
+        ]
+        health.sessions = (3...6).map { i in
+            HealthSession(fileURL: URL(fileURLWithPath: "/v/训练记录/2026-11-0\(i).md"), date: d("2026-11-0\(i) 12:00"), kind: .strength,
+                          title: "力量", distanceKm: nil, minutes: nil, volume: nil, table: nil, note: "")
+        }
+        health.sleep = [SleepNight(date: d("2026-11-04"), bedtime: "23:30", wake: "07:00", minutes: 450),
+                        SleepNight(date: d("2026-11-05"), bedtime: "01:00", wake: "06:30", minutes: 330)]
+        let focus = [FocusSession(start: d("2026-11-05 09:00"), end: d("2026-11-05 17:00"), minutes: 7.5 * 60, label: "x")]
+        let a = CardPoints.awards(health: health, focus: focus, vision: .empty, trips: [], since: d("2026-11-02"),
+                                  now: d("2026-11-10 10:00"), calendar: cal)
+        let keys = Set(a.map(\.key))
+        #expect(keys.isSuperset(of: ["diet-complete:2026-11-03", "diet-protein:2026-11-03", "diet-kcal:2026-11-03",
+                                     "sleep:2026-11-04", "sleep7:2026-11-04", "sleep:2026-11-05", "focus:2026-11-05:6",
+                                     "train:2026-11-03.md", "week:2026-11-02:train"]))
+        #expect(!keys.contains("diet-complete:2026-11-04"))
+        #expect(!keys.contains("diet-protein:2026-11-04"))
+        #expect(!keys.contains("sleep7:2026-11-05"))
+        #expect(!keys.contains("focus:2026-11-05:7"))
+        #expect(!keys.contains("week:2026-11-02:focus"))
+        // 这周（11/09 起）还没过完，不算周奖励
+        #expect(!keys.contains { $0.hasPrefix("week:2026-11-09") })
+        #expect(a.filter { $0.key.hasPrefix("focus:") }.reduce(0) { $0 + $1.points } == 12)
+    }
+}

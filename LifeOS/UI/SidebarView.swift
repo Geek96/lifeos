@@ -29,7 +29,7 @@ struct SidebarView: View {
                 Label("备忘", systemImage: "note.text").tag(AppModel.Page.notes)
             }
 
-            if model.config.plugins.health || model.config.plugins.things || model.config.plugins.finance || model.config.plugins.travel || model.config.plugins.vision {
+            if model.config.plugins.health || model.config.plugins.things || model.config.plugins.finance || model.config.plugins.travel || model.config.plugins.vision || model.config.plugins.cards {
                 Section("插件") {
                     // 健康插件直接拆成三页
                     if model.config.plugins.health {
@@ -48,6 +48,9 @@ struct SidebarView: View {
                     }
                     if model.config.plugins.vision {
                         Label("远景", systemImage: "mountain.2").tag(AppModel.Page.vision)
+                    }
+                    if model.config.plugins.cards {
+                        Label("收藏", systemImage: "rectangle.stack").tag(AppModel.Page.cards)
                     }
                 }
             }

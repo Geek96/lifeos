@@ -78,15 +78,18 @@ public struct LifeConfig: Codable, Equatable, Sendable {
         public var vision: Bool
         /// 听：手机上的播客播放器，播放同步到手机的音频文件夹（不读写 vault，只在手机版有界面）
         public var podcast: Bool
+        /// 收藏：做到的事攒积分、抽卡，陈列馆（电脑上抽，手机上看），数据在 收藏/
+        public var cards: Bool
 
         public init(health: Bool = false, things: Bool = false, finance: Bool = false, travel: Bool = false, vision: Bool = false,
-                    podcast: Bool = false) {
+                    podcast: Bool = false, cards: Bool = false) {
             self.health = health
             self.things = things
             self.finance = finance
             self.travel = travel
             self.vision = vision
             self.podcast = podcast
+            self.cards = cards
         }
 
         public init(from decoder: Decoder) throws {
@@ -97,6 +100,7 @@ public struct LifeConfig: Codable, Equatable, Sendable {
             travel = try c.decodeIfPresent(Bool.self, forKey: .travel) ?? false
             vision = try c.decodeIfPresent(Bool.self, forKey: .vision) ?? false
             podcast = try c.decodeIfPresent(Bool.self, forKey: .podcast) ?? false
+            cards = try c.decodeIfPresent(Bool.self, forKey: .cards) ?? false
         }
     }
 

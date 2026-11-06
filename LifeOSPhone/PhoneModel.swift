@@ -27,6 +27,8 @@ final class PhoneModel {
     var vision = VisionSnapshot.empty
     /// 专注记录（`健康/专注/`），旧的在前
     var focus: [FocusSession] = []
+    /// 收藏：卡池、积分、抽到的卡（手机只看，抽卡在电脑上）
+    var cards = CardsSnapshot.empty
     var lastLoad: Date?
     var clock = Date()
     /// 一句短提示（勾购物清单没写成时），几秒后自己消失
@@ -116,6 +118,7 @@ final class PhoneModel {
         trips = config.plugins.travel ? TravelStore(vault: root).loadTrips(calendar: calendar) : []
         vision = config.plugins.vision ? VisionStore(vault: root).load(calendar: calendar) : .empty
         focus = FocusStore(vault: root).load(calendar: calendar)
+        cards = config.plugins.cards ? CardsStore(vault: root).load(calendar: calendar) : .empty
         if let semesterURL = config.courseos.resolvedSemesterURL(vault: root) {
             do {
                 snapshot = try CourseOSBridge.load(semester: semesterURL, calendar: calendar)

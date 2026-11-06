@@ -195,7 +195,22 @@ enum FocusSnapshot {
             ("focus_week", AnyView(FocusRangePage(period: HealthPeriod(scale: .week, anchor: Date()), onSelectDay: { _ in }))),
             ("focus_month", AnyView(FocusRangePage(period: HealthPeriod(scale: .month, anchor: Date()), onSelectDay: { _ in }))),
         ]
-        for (name, view) in pages {
+        var pages2 = pages
+        if let pool = model.cards.pools.first {
+            let picks = CardRarity.allCases.compactMap { r in pool.cards.first { $0.rarity == r } }
+            pages2.append(("cards_faces", AnyView(VStack(spacing: 20) {
+                HStack(spacing: 16) { ForEach(picks) { CardFace(pool: pool, card: $0, width: 220) } }
+                HStack(spacing: 16) { ForEach(picks) { CardFace(pool: pool, card: $0, width: 220, back: true) } }
+                if let p2 = model.cards.pools.dropFirst().first {
+                    HStack(spacing: 16) {
+                        ForEach(CardRarity.allCases.compactMap { r in p2.cards.first { $0.rarity == r } }) { CardFace(pool: p2, card: $0, width: 220) }
+                    }
+                }
+                HStack(spacing: 16) { CardBack(width: 220, glow: .legend); CardSlot(pool: pool, card: pool.cards[0], width: 220) }
+            }.padding(30).background(Color(white: 0.12)))))
+            pages2.append(("cards_page", AnyView(CardsView().frame(width: 900, height: 2400))))
+        }
+        for (name, view) in pages2 {
             let r = ImageRenderer(content: view.environment(model).padding(24).frame(width: 760).background(Color.white))
             r.scale = 2
             if let img = r.nsImage, let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),

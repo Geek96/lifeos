@@ -8,7 +8,7 @@ import LifeOSCore
 @MainActor
 final class AppModel {
     enum Page: Hashable {
-        case today, week, month, inbox, notes, nutrition, fitness, rest, things, finance, travel, vision
+        case today, week, month, inbox, notes, nutrition, fitness, rest, things, finance, travel, vision, cards
 
         /// 健康插件的三页：营养 / 健身与锻炼 / 时间管理（专注 + 休息与放松）
         var isHealth: Bool { self == .nutrition || self == .fitness || self == .rest }
@@ -47,6 +47,10 @@ final class AppModel {
     var health = HealthSnapshot.empty
     /// 专注记录（`健康/专注/`，手机写），旧的在前
     var focus: [FocusSession] = []
+    /// 收藏插件：卡池、积分账本、抽卡记录（关着时为空）
+    var cards = CardsSnapshot.empty
+    /// 这次打开新记上的积分（收藏页顶上提一句）
+    var newPoints: [PointsEntry] = []
     /// 时间管理页现在看哪个分页（focus / rest）；今天页点睡眠、专注那一行会切过去
     var timeTab = UserDefaults.standard.string(forKey: "timeTab") ?? "focus" {
         didSet { UserDefaults.standard.set(timeTab, forKey: "timeTab") }
@@ -143,6 +147,7 @@ final class AppModel {
         if !config.plugins.things && page == .things { page = .today }
         vision = config.plugins.vision ? VisionStore(vault: root).load(calendar: calendar) : .empty
         if !config.plugins.vision && page == .vision { page = .today }
+        loadCards(root)
         if let semesterURL = config.courseos.resolvedSemesterURL(vault: root) {
             do {
                 snapshot = try CourseOSBridge.load(semester: semesterURL, calendar: calendar)
@@ -590,6 +595,51 @@ final class AppModel {
 
     /// 记一晚睡眠（起床那天、几点睡、几点起，可以只填一个）；同一天再记就替换。可撤销
     @discardableResult
+    // MARK: - 收藏
+
+    /// 读卡池和账本，顺便把还没记的积分补上（只加不减，同一件事只记一次）
+    private func loadCards(_ root: URL) {
+        guard config.plugins.cards else {
+            cards = .empty
+            if page == .cards { page = .today }
+            return
+        }
+        let store = CardsStore(vault: root)
+        cards = store.load(calendar: calendar)
+        var cal = calendar
+        cal.firstWeekday = 2
+        // 第一次打开：从这周一开始算
+        let since = cards.since ?? cal.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date()
+        let awards = CardPoints.awards(health: health, focus: focus, vision: vision, trips: trips, since: since, now: Date(), calendar: calendar)
+        let known = Set(cards.ledger.map(\.key))
+        let missing = awards.filter { !known.contains($0.key) }
+        guard !missing.isEmpty || cards.since == nil else { return }
+        do {
+            try store.appendPoints(missing, start: since, calendar: calendar)
+            cards = store.load(calendar: calendar)
+            newPoints += missing
+        } catch {
+            feedback.show("没能记积分：\(error.localizedDescription)")
+        }
+    }
+
+    /// 抽卡：积分够（或者有周日免费一抽）就抽、记下，返回抽到的；不够返回 nil
+    func drawCards(pool: CardPool, count: Int, free: Bool = false) -> [CardDraw]? {
+        guard let root = vaultRoot else { return nil }
+        let cost = count >= 10 ? CardDrawer.tenCost : CardDrawer.singleCost * count
+        if free ? cards.freeDraws(now: Date(), calendar: calendar) < 1 : cards.balance < cost { return nil }
+        var rng = SystemRandomNumberGenerator()
+        let draws = CardDrawer.draw(count: free ? 1 : count, from: pool, snapshot: cards, free: free, now: Date(), rng: &rng)
+        do {
+            try CardsStore(vault: root).appendDraws(draws, pools: cards.pools, calendar: calendar)
+            cards = CardsStore(vault: root).load(calendar: calendar)
+            return draws
+        } catch {
+            feedback.show("没能记下抽卡：\(error.localizedDescription)")
+            return nil
+        }
+    }
+
     func recordSleep(wakeDay: Date, bedtime: String?, wake: String?) -> Bool {
         guard let root = vaultRoot else { return false }
         let store = HealthStore(vault: root)

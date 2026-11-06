@@ -54,6 +54,7 @@ targets:
       - path: LifeOSPhone
       - path: LifeOS/UI/Shared/Theme.swift
       - path: LifeOS/UI/Shared/Fmt.swift
+      - path: LifeOS/UI/Shared/CardFace.swift
     dependencies:
       - package: LifeOSCore
         products: [LifeOSCore]

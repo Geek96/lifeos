@@ -4,6 +4,7 @@ import LifeOSCore
 /// 今天：营养小结 → 快到了 → 安排 → 这段时间内找空做 → 接下来几天。和电脑版一样，没有完成率和逾期。
 struct PhoneTodayView: View {
     @Environment(PhoneModel.self) private var model
+    @State private var showCards = false
 
     var body: some View {
         let day = model.clock
@@ -46,8 +47,22 @@ struct PhoneTodayView: View {
                     }
                 }
                 PhoneNextDays(from: day)
+                if model.config.plugins.cards {
+                    Section {
+                        NavigationLink { PhoneCardsView() } label: {
+                            let c = model.cards
+                            Label("收藏 · \(c.pools.reduce(0) { $0 + c.ownedCount($1) }) / \(c.pools.reduce(0) { $0 + $1.cards.count }) 张 · 积分 \(c.balance)",
+                                  systemImage: "rectangle.stack")
+                        }
+                    }
+                }
             }
             .navigationTitle("今天")
+            .navigationDestination(isPresented: $showCards) { PhoneCardsView() }
+            #if DEBUG
+            // 调试：`-debugCards 1` 启动时直接打开收藏
+            .task { if UserDefaults.standard.string(forKey: "debugCards") != nil { showCards = true } }
+            #endif
             .toolbar { SettingsButton() }
             .refreshable { model.reload() }
             .safeAreaInset(edge: .bottom) { PhoneNoticeBanner() }
