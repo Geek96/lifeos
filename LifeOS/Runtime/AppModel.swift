@@ -39,6 +39,8 @@ final class AppModel {
     var journal: [VaultStore.JournalEntry] = []
     /// 健康插件（关着时为空）
     var health = HealthSnapshot.empty
+    /// 专注记录（`健康/专注/`，手机写），旧的在前
+    var focus: [FocusSession] = []
     /// 物品插件（关着时为空）
     var things: [Thing] = []
     /// 物品插件的想买清单
@@ -113,6 +115,7 @@ final class AppModel {
         notes = store.notes()
         journal = store.recentJournal()
         health = config.plugins.health ? HealthStore(vault: root).load(calendar: calendar) : .empty
+        focus = FocusStore(vault: root).load(calendar: calendar)
         if !config.plugins.health && page?.isHealth == true { page = .today }
         things = config.plugins.things ? ThingStore(vault: root).load(calendar: calendar) : []
         thingWishes = config.plugins.things ? ThingStore(vault: root).loadWishlist(calendar: calendar) : []

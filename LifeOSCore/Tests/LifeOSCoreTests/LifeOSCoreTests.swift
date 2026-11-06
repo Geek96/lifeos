@@ -1323,3 +1323,171 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
         #expect(differingLines(both, try #require(ShoppingList.toggledBytes(back, in: both))) == [3])
     }
 }
+
+@Suite struct PodcastTests {
+    private func makeLibrary() throws -> URL {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("podcast-\(UUID().uuidString)")
+        let show = root.appendingPathComponent("HIST2112")
+        try fm.createDirectory(at: show, withIntermediateDirectories: true)
+        try fm.createDirectory(at: root.appendingPathComponent("_工具"), withIntermediateDirectories: true)
+        for name in ["课堂10-B.m4a", "课堂07-A.m4a", "课堂07-A.md", "podcast.xml", "_草稿.m4a"] {
+            try Data().write(to: show.appendingPathComponent(name))
+        }
+        try Data().write(to: root.appendingPathComponent("_工具/x.m4a"))
+        let feed = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" version="2.0"><channel><title>讲书</title>
+        <item><title>HIST2112 · 第七讲 New Deal</title><description>罗斯福新政</description>
+        <enclosure url="http://mac.local:8765/HIST2112/%E8%AF%BE%E5%A0%8207-A.m4a" length="1" type="audio/x-m4a" />
+        <pubDate>Sun, 01 Nov 2026 21:34:16 -0500</pubDate><itunes:duration>01:00:18</itunes:duration></item>
+        </channel></rss>
+        """
+        try Data(feed.utf8).write(to: root.appendingPathComponent("podcast.xml"))
+        return root
+    }
+
+    @Test func scansShowsSkipsUnderscoreAndReadsFeed() throws {
+        let root = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let shows = PodcastLibrary.scan(root)
+        #expect(shows.map(\.id) == ["HIST2112"])
+        let eps = shows[0].episodes
+        #expect(eps.map(\.id) == ["HIST2112/课堂07-A.m4a", "HIST2112/课堂10-B.m4a"])
+        #expect(eps[0].title == "第七讲 New Deal")
+        #expect(eps[0].summary == "罗斯福新政")
+        #expect(eps[0].duration == 3618)
+        #expect(eps[0].published != nil)
+        #expect(eps[0].notesURL?.lastPathComponent == "课堂07-A.md")
+        #expect(eps[1].title == "课堂10-B")
+        #expect(eps[1].notesURL == nil)
+    }
+
+    @Test func pickingShowFolderItselfWorks() throws {
+        let root = try makeLibrary()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let shows = PodcastLibrary.scan(root.appendingPathComponent("HIST2112"))
+        #expect(shows.count == 1 && shows[0].episodes.count == 2)
+    }
+
+    @Test func durationsAndProgress() {
+        #expect(PodcastLibrary.parseDuration("27:22") == 1642)
+        #expect(PodcastLibrary.parseDuration("90") == 90)
+        #expect(PodcastLibrary.parseDuration("a:b") == nil)
+        let p = PodcastProgress(position: 30, duration: 120)
+        #expect(p.fraction == 0.25 && p.inProgress)
+        #expect(!PodcastProgress(position: 30, played: true).inProgress)
+    }
+
+    @Test func pluginFlagDefaultsOff() throws {
+        let c = try JSONDecoder().decode(LifeConfig.self, from: Data("{\"plugins\":{\"podcast\":true}}".utf8))
+        #expect(c.plugins.podcast && !c.plugins.health)
+        #expect(!LifeConfig().plugins.podcast)
+    }
+}
+
+@Suite struct PodcastChapterTests {
+    let chapters = [PodcastChapter(title: "开场", start: 0), PodcastChapter(title: "第一块", start: 60),
+                    PodcastChapter(title: "第二块", start: 200)]
+
+    @Test func whichChapter() {
+        #expect(PodcastChapter.index(at: 0, in: chapters) == 0)
+        #expect(PodcastChapter.index(at: 59, in: chapters) == 0)
+        #expect(PodcastChapter.index(at: 59.8, in: chapters) == 1)   // 刚跳到第一块
+        #expect(PodcastChapter.index(at: 500, in: chapters) == 2)
+        #expect(PodcastChapter.index(at: 10, in: []) == nil)
+    }
+
+    @Test func nextAndPrevious() {
+        #expect(PodcastChapter.nextStart(from: 30, in: chapters) == 60)
+        #expect(PodcastChapter.nextStart(from: 250, in: chapters) == nil)
+        #expect(PodcastChapter.previousStart(from: 100, in: chapters) == 60)   // 放了一会儿：回到本章开头
+        #expect(PodcastChapter.previousStart(from: 61, in: chapters) == 0)     // 刚开头：到上一章
+        #expect(PodcastChapter.previousStart(from: 1, in: chapters) == 0)
+    }
+
+    @Test func notesBlocks() {
+        let raw = "---\n书名: 研究论文\n---\n\n# 第一集\n\n**乙：** 开始。\n\n## 第一块 问题\n\n**甲：** 第一段\n接着一行。\n\n（停 4 秒）\n"
+        let b = PodcastNotes.parse(raw)
+        #expect(b.map(\.level) == [1, 0, 2, 0, 0])
+        #expect(b[2].text == "第一块 问题")
+        #expect(b[3].text == "**甲：** 第一段\n接着一行。")
+        #expect(b.map(\.id) == [0, 1, 2, 3, 4])
+        let ch = [PodcastChapter(title: "开场", start: 0), PodcastChapter(title: "第一块 问题", start: 61)]
+        #expect(PodcastNotes.chapter(for: b[2], in: ch)?.start == 61)
+        #expect(PodcastNotes.chapter(for: b[0], in: ch) == nil)
+    }
+}
+
+@Suite struct PhoneRecordTests {
+    private func tempVault() -> URL {
+        let u = FileManager.default.temporaryDirectory.appendingPathComponent("lifeos-test-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
+        return u
+    }
+
+    @Test func focusAppendCreatesThenAppendsAndParses() throws {
+        let vault = tempVault()
+        let store = FocusStore(vault: vault)
+        try store.append(FocusSession(start: d("2026-11-05 21:10"), end: d("2026-11-05 21:35"), minutes: 25,
+                                      label: "线代：HW8", leaves: 2, leaveMinutes: 3, note: "写完 5B | 最后一题"), calendar: cal)
+        try store.append(FocusSession(start: d("2026-11-05 23:50"), end: d("2026-11-06 00:40"), minutes: 50,
+                                      label: "HIST 复习"), calendar: cal)
+        let text = try String(contentsOf: store.url(d("2026-11-05"), calendar: cal), encoding: .utf8)
+        #expect(text.hasPrefix("---\ntype: health-focus\ndate: 2026-11-05\n---"))
+        #expect(text.contains("| 21:10 | 21:35 | 25 | 线代：HW8 | 2 次 / 3 分钟 | 写完 5B ／ 最后一题 |"))
+        let all = store.load(calendar: cal)
+        #expect(all.count == 2)
+        #expect(all[0].leaves == 2 && all[0].leaveMinutes == 3)
+        #expect(all[1].end == d("2026-11-06 00:40"))
+        #expect(FocusSummary.minutes(on: d("2026-11-05"), in: all, calendar: cal) == 75)
+    }
+
+    @Test func workoutRowsGroupEqualSets() {
+        let sets = [LoggedSet(exercise: "卧推", weight: 95, reps: 9, rest: 150), LoggedSet(exercise: "卧推", weight: 95, reps: 9, rest: 160),
+                    LoggedSet(exercise: "卧推", weight: 95, reps: 7), LoggedSet(exercise: "俯卧撑", weight: nil, reps: 15)]
+        #expect(WorkoutLog.rows(sets) == ["| 卧推 | 95 | 2×9 |", "| 卧推 | 95 | 1×7 |", "| 俯卧撑 | 自重 | 1×15 |"])
+        let md = WorkoutLog.markdown(title: "力量 · 上肢 A", date: d("2026-11-06"), start: d("2026-11-06 12:00"),
+                                     end: d("2026-11-06 12:55"), sets: sets, note: "", calendar: cal)
+        let s = HealthStore.parseSession(md, fileURL: file, calendar: cal)
+        #expect(s?.kind == .strength)
+        #expect(s?.volume == 2375.0)
+        #expect(md.contains("组间平均休息 155 秒"))
+    }
+
+    @Test func writeSessionNeverOverwrites() throws {
+        let store = HealthStore(vault: tempVault())
+        let a = try store.writeSession(title: "力量", fileTitle: "上肢A", date: d("2026-11-06"), start: d("2026-11-06 12:00"),
+                                       end: d("2026-11-06 13:00"), sets: [], note: "", calendar: cal)
+        let b = try store.writeSession(title: "力量", fileTitle: "上肢A", date: d("2026-11-06"), start: d("2026-11-06 18:00"),
+                                       end: d("2026-11-06 19:00"), sets: [], note: "", calendar: cal)
+        #expect(a.lastPathComponent == "2026-11-06 上肢A.md")
+        #expect(b.lastPathComponent == "2026-11-06 上肢A 2.md")
+    }
+
+    @Test func sleepInferenceMergesShortWakeUps() {
+        let ev = [d("2026-11-05 22:10"), d("2026-11-05 23:40"), d("2026-11-06 01:30"), d("2026-11-06 01:35"),
+                  d("2026-11-06 03:05"), d("2026-11-06 03:12")]
+        // 22:10–23:40 在学习没碰手机，不算；1 点半和 3 点各看了一眼手机，8 点起床
+        let n = SleepInference.lastNight(events: ev, now: d("2026-11-06 08:02"), calendar: cal)
+        #expect(n?.bed == d("2026-11-05 23:40"))
+        #expect(SleepInference.lastNight(events: [d("2026-11-06 00:30"), d("2026-11-06 02:00"), d("2026-11-06 02:05")],
+                                         now: d("2026-11-06 07:00"), calendar: cal)?.bed == d("2026-11-06 00:30"))
+        #expect(n?.wake == d("2026-11-06 08:02"))
+        // 5 点前不推
+        #expect(SleepInference.lastNight(events: ev, now: d("2026-11-06 04:30"), calendar: cal) == nil)
+        // 白天几个小时没碰手机不算
+        #expect(SleepInference.lastNight(events: [d("2026-11-05 21:00"), d("2026-11-06 07:00"), d("2026-11-06 07:05")],
+                                         now: d("2026-11-06 15:00"), calendar: cal)?.wake == d("2026-11-06 07:00"))
+    }
+
+    @Test func inferredSleepNeverReplacesExistingRow() throws {
+        let store = HealthStore(vault: tempVault())
+        try store.recordSleep(wakeDay: d("2026-11-06"), bedtime: "01:00", wake: "08:00", calendar: cal)
+        #expect(try !store.addInferredSleep(bed: d("2026-11-05 23:40"), wake: d("2026-11-06 08:02"), calendar: cal))
+        #expect(try store.addInferredSleep(bed: d("2026-11-04 23:30"), wake: d("2026-11-05 07:30"), calendar: cal))
+        let nights = store.loadSleep(calendar: cal)
+        #expect(nights.map(\.bedtime) == ["23:30", "01:00"])
+        #expect(nights.first?.minutes == 480)
+    }
+}

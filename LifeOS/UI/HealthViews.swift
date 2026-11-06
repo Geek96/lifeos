@@ -157,6 +157,14 @@ struct HealthTodayCard: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .onTapGesture { model.page = .rest }
             }
+            let focusMinutes = FocusSummary.minutes(on: day, in: model.focus, calendar: model.calendar)
+            if focusMinutes > 0 {
+                let parts = FocusSummary.byLabel(on: day, in: model.focus, calendar: model.calendar).prefix(3)
+                    .map { "\($0.label) \(Int($0.minutes.rounded())) 分钟" }.joined(separator: "、")
+                Label("专注了 \(HealthFormat.sleepText(focusMinutes))：\(parts)", systemImage: "timer")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
             if isToday {
                 MealLogField()
                 PendingMealsHint(count: diet.pendingCount)

@@ -1,8 +1,10 @@
 import SwiftUI
 import LifeOSCore
 
-/// 手机版：除了勾购物清单都只读。内容由电脑决定，手机通过 Möbius Sync（Syncthing，发送和接收）拿到 vault。
-/// 唯一的写入：`toggleShopping` 只改 `健康/购物清单.md` 里那一行的勾选框（`ShoppingList.toggle`），不新建、不删除、不改名任何文件。
+/// 手机版：内容由电脑决定，手机通过 Möbius Sync（Syncthing，发送和接收）拿到 vault。
+/// 写入只有四种：`toggleShopping` 只改 `健康/购物清单.md` 里那一行的勾选框（`ShoppingList.toggle`）；
+/// `saveFocus` 往 `健康/专注/当天.md` 追加一行（这个文件夹只有手机写）；`saveWorkout` 在 `健康/训练记录/` 新建一个文件（不覆盖）；
+/// `phoneUsed` 推算的睡眠只补 `健康/睡眠/` 里还没有的那天。不删除、不改名任何文件。
 /// 用户在“文件”里选同步过来的文件夹（选 vault 本身或它的上级都行）；选上级时 CourseOS 学期目录也在授权范围内。
 @Observable
 @MainActor
@@ -23,6 +25,8 @@ final class PhoneModel {
     var finance = FinanceSnapshot.empty
     var trips: [Trip] = []
     var vision = VisionSnapshot.empty
+    /// 专注记录（`健康/专注/`），旧的在前
+    var focus: [FocusSession] = []
     var lastLoad: Date?
     var clock = Date()
     /// 一句短提示（勾购物清单没写成时），几秒后自己消失
@@ -111,6 +115,7 @@ final class PhoneModel {
         finance = config.plugins.finance ? FinanceStore(vault: root).load(calendar: calendar) : .empty
         trips = config.plugins.travel ? TravelStore(vault: root).loadTrips(calendar: calendar) : []
         vision = config.plugins.vision ? VisionStore(vault: root).load(calendar: calendar) : .empty
+        focus = FocusStore(vault: root).load(calendar: calendar)
         if let semesterURL = config.courseos.resolvedSemesterURL(vault: root) {
             do {
                 snapshot = try CourseOSBridge.load(semester: semesterURL, calendar: calendar)
@@ -142,6 +147,46 @@ final class PhoneModel {
             notice = "没能写入：\(error.localizedDescription)"
         }
         health.shopping = store.loadShopping()
+    }
+
+    // MARK: - 手机写的记录：专注、训练、睡眠
+
+    /// 专注结束：追加到开始那天的专注文件
+    @discardableResult
+    func saveFocus(_ s: FocusSession) -> Bool {
+        guard let root = vaultRoot else { return false }
+        let store = FocusStore(vault: root)
+        do {
+            try store.append(s, calendar: calendar)
+            focus = store.load(calendar: calendar)
+            return true
+        } catch {
+            notice = "专注没记上：\(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// 练完：在训练记录里新建一个文件
+    @discardableResult
+    func saveWorkout(title: String, fileTitle: String, start: Date, end: Date, sets: [LoggedSet], note: String) -> Bool {
+        guard let root = vaultRoot, config.plugins.health else { return false }
+        let store = HealthStore(vault: root)
+        do {
+            try store.writeSession(title: title, fileTitle: fileTitle, date: start, start: start, end: end,
+                                   sets: sets, note: note, calendar: calendar)
+            health.sessions = store.loadSessions(calendar: calendar)
+            return true
+        } catch {
+            notice = "训练没记上：\(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// 回到前台 / 进后台时记一次“在用手机”；早上第一次用时推算昨晚的睡眠
+    func phoneUsed() {
+        guard let night = PhoneUsage.record(vault: vaultRoot), let root = vaultRoot else { return }
+        health.sleep = HealthStore(vault: root).loadSleep(calendar: calendar)
+        notice = "按昨晚用手机的时间记了睡眠：\(Fmt.string(night.bed, "H:mm")) 到 \(Fmt.string(night.wake, "H:mm"))"
     }
 
     // MARK: - 日历数据（和电脑版 AppModel 同一套算法）

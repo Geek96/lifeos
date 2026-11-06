@@ -25,6 +25,9 @@ struct PhoneTodayView: View {
                         NutritionMiniCard(day: day)
                     }
                 }
+                if model.config.plugins.health {
+                    PhoneTrainingSection()
+                }
                 if !model.upcoming.isEmpty {
                     Section("快到了") {
                         ForEach(model.upcoming) { PhoneOccurrenceRow(occurrence: $0, includeDay: true) }
@@ -47,6 +50,7 @@ struct PhoneTodayView: View {
             .navigationTitle("今天")
             .toolbar { SettingsButton() }
             .refreshable { model.reload() }
+            .safeAreaInset(edge: .bottom) { PhoneNoticeBanner() }
         }
     }
 }

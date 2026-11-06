@@ -78,6 +78,8 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIApplicationSupportsIndirectInputEvents: true
+        # 听插件：锁屏、切到别的 App 时继续播放
+        UIBackgroundModes: [audio]
 
 schemes:
   LifeOS:

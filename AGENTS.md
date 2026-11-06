@@ -27,7 +27,7 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   电脑版检查器“这一次”：只改这一次…（`OccurrenceEditorSheet`）/ 取消这一次 / 恢复成原样，经 `VaultStore.setException` 写回；
   拖动已调整过的那一次只改它自己，拖动其他的仍是整个系列。界面用 `Occurrence.adjustedSystemImage` 图标 + 文字标出（不只靠颜色）。
   手机版只显示。注意：改系列的 start（编辑或拖动整个系列）不会跟着改 `exceptions` 的 date，挪了日期后旧例外可能对不上。
-- `templates/vault/` 是新 vault 的模板（RULES.md 第 11 版、入口文件、收件箱、lifeos.json 示例）。
+- `templates/vault/` 是新 vault 的模板（RULES.md 第 12 版、入口文件、收件箱、lifeos.json 示例）。
 
 ## 插件
 
@@ -66,6 +66,19 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   （checkpoint 常和已有事项重合，不上日历）。界面 `LifeOS/UI/VisionViews.swift`：愿景 / 项目 / 奇思妙想，时间甬道 `VisionCorridor`。
   清单型愿景的每个地方按“行程”列（或名字）对应一个出行，点开跳到出行详情页，返回回到愿景（`tripReturnVisionID`）。
   内容都由 agent 写；App 只会改项目步骤的勾（`VisionStore.toggleStep`，核对那一行内容才改）。
+- **听**（`plugins.podcast`）：只在手机版有界面（底栏第四个“听”），电脑设置里只有开关。播放手机上另选的一个音频文件夹
+  （比如 Möbius Sync 同步过来的 `SharedDocs/讲书/`），和 vault 是两个 bookmark（`PodcastModel.bookmarkKey`）。
+  `LifeOSCore/Podcast.swift`：`PodcastLibrary.scan` 把每个子文件夹当一个节目（选的文件夹本身有音频也算一个），`.` / `_` 开头的跳过；
+  同名 `.md` 是讲稿；节目文件夹或选的文件夹里的 `podcast.xml` 提供标题（去掉“节目名 · ”前缀）、简介、时长，按 enclosure 的 `节目/文件名` 对应。
+  `LifeOSPhone/PodcastModel.swift`：AVPlayer、后台播放（`UIBackgroundModes: audio`）、锁屏 / 控制中心 / 耳机（`MPRemoteCommandCenter`）、
+  倍速、后退 15 / 快进 30、定时关闭、放完以后按播放模式接（`PodcastModel.PlayMode`：放完就停 / 顺序播放 / 列表循环 / 单集循环，存在 UserDefaults；
+  `skipPlayed` 打开时自动接跳过听完的）；播放器上一集 / 下一集（`nextEpisode` / `previousEpisode`，紧挨着的那集，听完的也放、从头放；
+  上一集在这集放了 5 秒以上时先回开头），耳机和锁屏的“上一首 / 下一首”也是换集；离结尾不到 20 秒算听完。
+  章节：m4a 里的 QuickTime 章节轨（讲书的 `synth.py` 按讲稿 `## ` 小标题写），`PodcastModel.chapters(of:)` 用 AVFoundation 读；
+  播放页显示当前章节、章节列表、上一章 / 下一章（换集按钮下面单独一排；`PodcastChapter.previousStart`：本章放了 3 秒以上先回本章开头）。没有章节的音频照常放。
+  讲稿：`PodcastNotes.parse` 去掉 frontmatter、按空行切段，一段一段显示；每集看到第几段存在 UserDefaults（`podcastNotesPosition`），
+  下次打开滚回去；和章节同名的小标题能点，点了从那一章开始放。
+  进度、倍速、播放模式存在手机 UserDefaults（`podcastProgress` 等），**不写任何同步文件夹里的文件**。界面在 `LifeOSPhone/PhonePodcastView.swift`。
 
 ## 读取 CourseOS 的什么
 
@@ -78,23 +91,40 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
 
 ## 手机版（`LifeOSPhone/`）
 
-- **除了勾购物清单都只读**：内容由电脑决定。vault 通过 Möbius Sync（iPhone 上的 Syncthing 客户端）同步到手机，
-  文件夹在 Möbius 里设成“发送和接收”（Send & Receive），手机勾的购物清单才能同步回电脑。
-  手机唯一的写入是 `PhoneModel.toggleShopping` → `ShoppingList.toggle`（`LifeOSCore/Recipes.swift`，电脑版 `AppModel.toggleShopping` 也用它）：
+- **手机只写四样**（后三样是 2026-11-05 用户同意的）：勾购物清单、专注、训练、睡眠；其他内容由电脑决定。
+  后三样的读写在 `LifeOSCore/PhoneRecords.swift`，都经 `SafeFileWrite.update`（NSFileCoordinator 里从磁盘重读 → 改 → 写到 App 临时目录再 rename）：
+  - 专注：`FocusStore.append` 往 `健康/专注/当天.md` 追加一行（只有手机写这个文件夹）。界面 `PhoneFocusView.swift`（底栏“专注”），
+    状态 `FocusModel.swift`：预设 25/45/60/90 分钟或正计时，做什么从今天的事项和最近用过的里选；切到别的 App 超过 15 秒记一次离开，
+    锁屏不算（`protectedDataWillBecomeUnavailable`）；到点语音 + 本地通知（后备）；结束写一句、可接着休息。电脑版今天卡片显示专注了多久（`AppModel.focus`）。
+  - 训练：今天页“今天练什么”（`PhoneWorkoutView.swift` 的 `PhoneTrainingSection`，按 `训练计划.md` 今天那行 + `动作/` 的目标和 `Exercise.suggestedWeight`）→ 全屏训练页；
+    `WorkoutModel.swift`：做完一组 → 组间休息（`Exercise.defaultRest`，±15 秒记在 UserDefaults `workoutRestSeconds`，没做满 +30 秒），
+    剩 10 秒和到点用语音说下一组；练完 `HealthStore.writeSession` 新建 `训练记录/YYYY-MM-DD 标题.md`（`source: phone`，不覆盖，重名加 ` 2`）。
+    动作“记录”表由 agent 之后补，手机不改 `动作/`。
+  - 睡眠：`PhoneUsage.swift` 记“在用手机”的时刻（LifeOS 进出前台、App 活着时的锁屏 / 解锁、快捷指令自动化调用的 `RecordPhoneUseIntent`“记一下用了手机”），
+    `SleepInference.lastNight` 在早上 5 点后推算昨晚（最长的半夜空档 ≥ 3 小时，并上中间看一眼手机不超过 20 分钟的空档），
+    `HealthStore.addInferredSleep` 只补那天还没有的一行，不替换。iOS 不让 App 在后台知道锁屏 / 解锁，所以要用户自己设快捷指令自动化（设置页有说明）。
+  - 声音：`AudioCue.swift`。计时期间放静音保活（`UIBackgroundModes: audio`，和别的 App 混着放），提醒用中文语音（静音键会关掉系统提示音），
+    说话时压低别的 App（duckOthers），LifeOS 自己在放听书时改成临时调低听书音量；本地通知只在 App 被杀时兜底（晚 3 秒，App 活着时先取消）。
+    免费 Apple ID 用不了 Screen Time（Family Controls），所以专注不锁别的 App。
+- **购物清单**：vault 通过 Möbius Sync（iPhone 上的 Syncthing 客户端）同步到手机，
+  文件夹在 Möbius 里设成“发送和接收”（Send & Receive），手机写的才能同步回电脑。
+  勾购物清单是 `PhoneModel.toggleShopping` → `ShoppingList.toggle`（`LifeOSCore/Recipes.swift`，电脑版 `AppModel.toggleShopping` 也用它）：
   写前在 `NSFileCoordinator` 里从磁盘重读，按 段 + 文字 + 同段重名序号（`ShoppingItem.occurrence`）+ 当前勾选状态找那一行，
   只把勾选框里那一个字节在空格和 `x` 之间换（`X` 取消时也变空格），其他字节原样；找不到 / 对不上（电脑上改过）就不写，重新读并提示一句。
   新内容先写到 App 自己的 tmp 目录，再 `rename(2)` 换掉原文件（同卷原子，不往 vault 里放临时文件）。
-  手机不新建、不删除、不改名任何 vault 文件，不加项、不清掉买好的（这些在电脑上做）。其他页面（今天、日历、营养记录、食谱）仍然只读。
+  手机不删除、不改名任何 vault 文件，不往购物清单加项、不清掉买好的（这些在电脑上做）。日历、营养记录、食谱仍然只读。
 - 共用 `LifeOSCore`，以及 `LifeOS/UI/Shared/` 里的 `Theme.swift`、`Fmt.swift`（这两个文件不能依赖 `AppModel` 或 AppKit）。
   `PhoneModel` 的日历算法要和 `AppModel` 保持一致（`occurrences` / `loads` / `upcoming`）。
 - 第一次打开在“文件”里选同步过来的文件夹：选 vault 本身或它的上级（往下找三层有 `lifeos.json` 或 `.lifeos/` 的文件夹）。
   `lifeos.json` 里的 CourseOS 是相对路径（`../GT-semseters/2026Fall`），所以要读课程就得选 vault 的上级，
   Möbius 里也要同步学期目录的 `courseos.json`、`_exports/`、`.courseos/`。选的文件夹存成 bookmark。
 - 没有文件监听（`VaultWatcher` 只有 macOS 有），回到前台和下拉时重新读。
-- 现在三页：今天、日历（月历 + 这天 / 这周）、营养。营养页顶部分段 记录 / 食谱 / 购物清单（和电脑版营养页的分页对应，备餐只在电脑上）：
+- 现在五页：今天（多了“今天练什么”）、日历（月历 + 这天 / 这周）、专注、营养（健康插件）、听（听插件）。营养页顶部分段 记录 / 食谱 / 购物清单（和电脑版营养页的分页对应，备餐只在电脑上）：
   记录 = 某天对目标 + 吃了什么 + 7 天热量柱；食谱（`PhoneRecipeViews.swift`）按顿分组，点进去看每份营养、材料和在哪买、做法、备注；
   购物清单按在哪买分组，点一下勾 / 取消。放进营养页的分段而不是单独一个 tab：和电脑版的结构一致，底栏保持三个。
-- 调试：启动参数 `-debugVaultPath <路径>` 跳过文件选择（只在 Debug），`-debugTab 0|1|2` 直接打开某一页，
+- 调试：启动参数 `-debugVaultPath <路径>` 跳过文件选择（只在 Debug），`-debugTab 0|1|2|3` 直接打开某一页，
+  `-debugPodcastPath <路径>` 跳过音频文件夹选择，`-debugPodcastShow <节目>` 打开某个节目，再加 `-debugPodcastPlay 1` 放第一集并打开播放器（再加 `-debugPodcastNotes 1` 接着打开讲稿），
+  `-debugTab 4` 是专注，`-debugFocus run|done` 开始一段专注（`done` 接着打开“专注结束”），`-debugWorkout 1|rest` 开始一次训练（`rest` 再做完一组进入休息），
   `-debugNutritionPage 1|2` 打开营养页的 食谱 / 购物清单，`-debugRecipe <名字>` 打开某个食谱，
   `-debugToggleShopping <那一项的文字>` 启动时勾 / 取消一次（只对 `-debugVaultPath` 指的副本，测勾选写回用）。
   模拟器读 `~/Desktop` 会卡在系统授权上，先把 vault 复制到别处再指过去。
