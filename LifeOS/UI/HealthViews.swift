@@ -155,7 +155,7 @@ struct HealthTodayCard: View {
             if let night = model.health.sleep(on: day, calendar: model.calendar), let minutes = night.minutes {
                 Label("昨晚睡了 \(HealthFormat.sleepText(minutes))（\(night.bedtime ?? "?")–\(night.wake ?? "?")）", systemImage: "bed.double")
                     .font(.callout).foregroundStyle(.secondary)
-                    .onTapGesture { model.page = .rest }
+                    .onTapGesture { model.timeTab = "rest"; model.page = .rest }
             }
             let focusMinutes = FocusSummary.minutes(on: day, in: model.focus, calendar: model.calendar)
             if focusMinutes > 0 {
@@ -164,6 +164,7 @@ struct HealthTodayCard: View {
                 Label("专注了 \(HealthFormat.sleepText(focusMinutes))：\(parts)", systemImage: "timer")
                     .font(.callout).foregroundStyle(.secondary)
                     .lineLimit(2)
+                    .onTapGesture { model.timeTab = "focus"; model.page = .rest }
             }
             if isToday {
                 MealLogField()
@@ -204,7 +205,7 @@ struct TrainingSummary: View {
     }
 }
 
-/// 健康三页（营养 / 健身与锻炼 / 休息与放松）共用的外框：大标题 + 可选分页条 + 内容
+/// 健康三页（营养 / 健身与锻炼 / 时间管理）共用的外框：大标题 + 可选分页条 + 内容
 struct HealthPageScaffold<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content

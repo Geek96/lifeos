@@ -2,7 +2,8 @@ import SwiftUI
 import Charts
 import LifeOSCore
 
-// 休息与放松页：日（记一晚、那一晚睡了多久）/ 周、月（平均时长、平均几点睡几点起、每晚的睡眠时段、月历热力格、
+// 时间管理页：专注（手机记的专注时段）/ 休息与放松（睡眠），两个分页共用“日 / 周 / 月”。
+// 休息与放松：日（记一晚、那一晚睡了多久）/ 周、月（平均时长、平均几点睡几点起、每晚的睡眠时段、月历热力格、
 // 和训练、考试放在一起看）。
 // 只陈述，不打分、不评价、不提醒。
 
@@ -11,17 +12,33 @@ struct RestView: View {
     @AppStorage("restScale") private var scale = HealthPeriod.Scale.week.rawValue
     @State private var anchor = Date()
 
+    enum TimeTab: String, CaseIterable, Identifiable {
+        case focus, rest
+        var id: String { rawValue }
+        var label: String {
+            switch self { case .focus: "专注"; case .rest: "休息与放松" }
+        }
+    }
+
     var body: some View {
+        @Bindable var model = model
         let period = HealthPeriod(scale: HealthPeriod.Scale(rawValue: scale) ?? .week, anchor: anchor)
-        HealthPageScaffold(title: "休息与放松") {
+        let tab = TimeTab(rawValue: model.timeTab) ?? .focus
+        let select: (Date) -> Void = { d in anchor = d; scale = HealthPeriod.Scale.day.rawValue }
+        HealthPageScaffold(title: "时间管理") {
+            TabStrip(tabs: TimeTab.allCases.map { ($0.rawValue, $0.label) }, selection: $model.timeTab)
             HealthPeriodBar(period: Binding(get: { period }, set: { scale = $0.scale.rawValue; anchor = $0.anchor }))
-            switch period.scale {
-            case .day:
+            switch (tab, period.scale) {
+            case (.focus, .day):
+                FocusDayPage(day: anchor)
+            case (.focus, _):
+                FocusRangePage(period: period, onSelectDay: select)
+            case (.rest, .day):
                 SleepEntryForm(day: $anchor)
                 RestDayPage(day: anchor)
-            case .week, .month:
+            case (.rest, _):
                 SleepEntryForm(day: nil)
-                RestRangePage(period: period) { d in anchor = d; scale = HealthPeriod.Scale.day.rawValue }
+                RestRangePage(period: period, onSelectDay: select)
             }
         }
     }

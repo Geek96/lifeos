@@ -37,9 +37,9 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   左栏“插件”里直接分三页，都能按 日 / 周 / 月 看（`HealthPeriod` + `HealthPeriodBar`，`LifeOS/UI/HealthPeriodViews.swift` 里还有月历热力格 `MonthHeatGrid`、按天柱状图 `DailyBarChart`）：
   营养（`NutritionViews.swift`：日 = 圆环、记一顿 / 补记、微量营养；周月 = `nutritionSummary` 平均、按天的图、热力格）、
   健身与锻炼（`FitnessViews.swift` 的 `FitnessView`：分页 记录（日 / 周 / 月，`fitnessSummary`，计划和实际对照，“记一笔”放进收件箱）/ 长期趋势 / 计划与动作）、
-  休息与放松（`SleepViews.swift` 的 `RestView`：记一晚、`sleepSummary` 平均几点睡几点起、睡眠时段图）；三页共用 `HealthPageScaffold`，`AppModel.Page.isHealth` 判断是不是这三页。
+  时间管理（`SleepViews.swift` 的 `RestView`，`AppModel.Page.rest`；分页 `AppModel.timeTab`：专注 = `FocusViews.swift` 的 `FocusDayPage` / `FocusRangePage`，只读手机写的 `健康/专注/`；休息与放松 = 记一晚、`sleepSummary` 平均几点睡几点起、睡眠时段图）；三页共用 `HealthPageScaffold`，`AppModel.Page.isHealth` 判断是不是这三页。
   营养页最下面是体重（`WeightSection`；`LifeOSCore/Weight.swift` 读写 `健康/体重.md`，目标范围来自 `目标.md` 的 `weight_gain_min/max`）；
-  休息与放松的周 / 月有 `SleepContextSection`：训练（训练记录）和考试（`AppModel.examDays`，不受图层开关影响）标在时间轴上，`SleepComparison` 分开平均。
+  休息与放松分页的周 / 月有 `SleepContextSection`：训练（训练记录）和考试（`AppModel.examDays`，不受图层开关影响）标在时间轴上，`SleepComparison` 分开平均。
   营养页分页 记录 / 食谱 / 购物清单 / 备餐（`RecipeViews.swift`；`LifeOSCore/Recipes.swift`：`Recipe` 读 `健康/食谱/`，
   `ShoppingList` 按食谱和份数合并材料、读写 `购物清单.md`，`MealPrep` 读写 `备餐.md`；“吃了一个”用 `appendMeal(nutrition:)` 按表头填营养）。
   新加 UI 文件后要重新跑 `xcodegen generate`（`.xcodeproj` 不进 git）。
@@ -141,3 +141,5 @@ designated requirement 绑定证书，重新编译后不变，macOS 不会反复
 2. `xcodebuild -project LifeOS.xcodeproj -scheme LifeOS -configuration Debug -derivedDataPath build.noindex build`
    手机版：`xcodebuild -project LifeOS.xcodeproj -scheme LifeOSPhone -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath build.noindex build`
 3. 改了 UI 就打开 App 肉眼确认（今天 / 周 / 月 / 收件箱 / 检查器）。
+   电脑版调试参数（只在 Debug）：`-vaultPath <副本>` 换 vault，`-debugPage rest` 直接打开时间管理页，
+   `-debugSnapshot <目录>` 把专注的 日 / 周 / 月 离屏画成 PNG 后退出（没有截屏权限时用）。

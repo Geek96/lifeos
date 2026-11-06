@@ -10,7 +10,7 @@ final class AppModel {
     enum Page: Hashable {
         case today, week, month, inbox, notes, nutrition, fitness, rest, things, finance, travel, vision
 
-        /// 健康插件的三页：营养 / 健身与锻炼 / 休息与放松
+        /// 健康插件的三页：营养 / 健身与锻炼 / 时间管理（专注 + 休息与放松）
         var isHealth: Bool { self == .nutrition || self == .fitness || self == .rest }
     }
 
@@ -27,7 +27,13 @@ final class AppModel {
     static let defaultVault = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Documents/LifeOS")
 
-    var page: Page? = .today
+    var page: Page? = {
+        #if DEBUG
+        // 调试：`-debugPage rest` 启动时直接打开时间管理页
+        if UserDefaults.standard.string(forKey: "debugPage") == "rest" { return .rest }
+        #endif
+        return .today
+    }()
     var vaultRoot: URL?
     var config = LifeConfig()
     var items: [LifeItem] = []
@@ -41,6 +47,10 @@ final class AppModel {
     var health = HealthSnapshot.empty
     /// 专注记录（`健康/专注/`，手机写），旧的在前
     var focus: [FocusSession] = []
+    /// 时间管理页现在看哪个分页（focus / rest）；今天页点睡眠、专注那一行会切过去
+    var timeTab = UserDefaults.standard.string(forKey: "timeTab") ?? "focus" {
+        didSet { UserDefaults.standard.set(timeTab, forKey: "timeTab") }
+    }
     /// 物品插件（关着时为空）
     var things: [Thing] = []
     /// 物品插件的想买清单

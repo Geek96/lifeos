@@ -16,7 +16,12 @@ struct LifeOSApp: App {
             MainView()
                 .environment(model)
                 .preferredColorScheme(colorScheme)
-                .task { model.boot() }
+                .task {
+                    model.boot()
+                    #if DEBUG
+                    await FocusSnapshot.runIfAsked(model)
+                    #endif
+                }
         }
         .defaultSize(width: 1360, height: 840)
         // 窗口不能拖得比 MainView 的最小宽高还小（否则三栏会互相挤压）
