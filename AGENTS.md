@@ -72,7 +72,7 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   陈列馆（按小套装，空槽显示编号）、`CardDetail`（鼠标倾斜、翻面、名画看原图）。卡面 `LifeOS/UI/Shared/CardFace.swift` 两端共用
   （稀有度边框：铜 / 银扫光 / 金扫光 + 光晕 / 镭射彩虹边框 + 彩虹膜 + 星点）。手机 `PhoneCardsView.swift` 只看：今天页底部进入，细看时陀螺仪倾斜、翻面有声音和震动。
   卡池素材（奇观图用 mflux + Z-Image-Turbo 本地画，名画是公有领域原图）不在仓库里。
-- **听**（`plugins.podcast`）：只在手机版有界面（底栏第四个“听”），电脑设置里只有开关。播放手机上另选的一个音频文件夹
+- **听**（`plugins.podcast`）：播放器只在手机版（底栏第四个“听”），电脑版只有“讲稿”页看讲稿。播放手机上另选的一个音频文件夹
   （比如 Möbius Sync 同步过来的 `SharedDocs/讲书/`），和 vault 是两个 bookmark（`PodcastModel.bookmarkKey`）。
   `LifeOSCore/Podcast.swift`：`PodcastLibrary.scan` 把每个子文件夹当一个节目（选的文件夹本身有音频也算一个），`.` / `_` 开头的跳过；
   同名 `.md` 是讲稿；节目文件夹或选的文件夹里的 `podcast.xml` 提供标题（去掉“节目名 · ”前缀）、简介、时长，按 enclosure 的 `节目/文件名` 对应。
@@ -85,6 +85,9 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   讲稿：`PodcastNotes.parse` 去掉 frontmatter、按空行切段，一段一段显示；每集看到第几段存在 UserDefaults（`podcastNotesPosition`），
   下次打开滚回去；和章节同名的小标题能点，点了从那一章开始放。
   进度、倍速、播放模式存在手机 UserDefaults（`podcastProgress` 等），**不写任何同步文件夹里的文件**。界面在 `LifeOSPhone/PhonePodcastView.swift`。
+  电脑版只看讲稿（2026-11-08 加）：左栏“插件”里的“讲稿”（`AppModel.Page.podcast`，`LifeOS/UI/PodcastNotesView.swift`），左边节目和每一集（`PodcastLibrary.scan`），
+  右边按 `PodcastNotes.parse` 一段一段显示，“目录”跳到 `## ` 小标题，字号可调，“播放音频”交给默认 App 打开。文件夹默认 `~/Desktop/SharedDocs/讲书`，
+  “换文件夹…”存在 UserDefaults `podcastFolderPath`；上次看的那集、每集看到第几段也存在本机 UserDefaults，不写文件。调试：`-debugPage podcast`。
 
 ## 读取 CourseOS 的什么
 

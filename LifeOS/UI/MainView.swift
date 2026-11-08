@@ -107,6 +107,7 @@ struct ContentView: View {
             case .travel: TravelView()
             case .vision: VisionView()
             case .cards: CardsView()
+            case .podcast: PodcastNotesView()
             }
         }
     }

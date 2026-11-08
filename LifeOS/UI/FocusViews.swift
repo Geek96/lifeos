@@ -210,6 +210,17 @@ enum FocusSnapshot {
             }.padding(30).background(Color(white: 0.12)))))
             pages2.append(("cards_page", AnyView(CardsView().frame(width: 900, height: 2400))))
         }
+        // 讲稿页有 List 和 ScrollView，ImageRenderer 画不出来，放进离屏窗口里画
+        let host = NSHostingView(rootView: PodcastNotesView().environment(model).frame(width: 1100, height: 760))
+        let win = NSWindow(contentRect: NSRect(x: -3000, y: 0, width: 1100, height: 760), styleMask: [.borderless], backing: .buffered, defer: false)
+        win.contentView = host
+        win.orderFrontRegardless()
+        try? await Task.sleep(for: .seconds(2))
+        if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir).appendingPathComponent("podcast_notes.png"))
+        }
+        win.orderOut(nil)
         for (name, view) in pages2 {
             let r = ImageRenderer(content: view.environment(model).padding(24).frame(width: 760).background(Color.white))
             r.scale = 2

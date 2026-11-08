@@ -8,7 +8,7 @@ import LifeOSCore
 @MainActor
 final class AppModel {
     enum Page: Hashable {
-        case today, week, month, inbox, notes, nutrition, fitness, rest, things, finance, travel, vision, cards
+        case today, week, month, inbox, notes, nutrition, fitness, rest, things, finance, travel, vision, cards, podcast
 
         /// 健康插件的三页：营养 / 健身与锻炼 / 时间管理（专注 + 休息与放松）
         var isHealth: Bool { self == .nutrition || self == .fitness || self == .rest }
@@ -29,8 +29,12 @@ final class AppModel {
 
     var page: Page? = {
         #if DEBUG
-        // 调试：`-debugPage rest` 启动时直接打开时间管理页
-        if UserDefaults.standard.string(forKey: "debugPage") == "rest" { return .rest }
+        // 调试：`-debugPage rest` 启动时直接打开时间管理页，`-debugPage podcast` 打开讲稿页
+        switch UserDefaults.standard.string(forKey: "debugPage") {
+        case "rest": return .rest
+        case "podcast": return .podcast
+        default: break
+        }
         #endif
         return .today
     }()
