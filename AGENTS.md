@@ -86,7 +86,7 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   下次打开滚回去；和章节同名的小标题能点，点了从那一章开始放。
   进度、倍速、播放模式存在手机 UserDefaults（`podcastProgress` 等），**不写任何同步文件夹里的文件**。界面在 `LifeOSPhone/PhonePodcastView.swift`。
   电脑版只看讲稿（2026-11-08 加）：左栏“插件”里的“讲稿”（`AppModel.Page.podcast`，`LifeOS/UI/PodcastNotesView.swift`），左边节目和每一集（`PodcastLibrary.scan`），
-  右边按 `PodcastNotes.parse` 一段一段显示，“目录”跳到 `## ` 小标题，字号可调，“播放音频”交给默认 App 打开。文件夹默认 `~/Desktop/SharedDocs/讲书`，
+  右边按 `PodcastNotes.parse` 一段一段显示，“目录”跳到 `## ` 小标题，字号可调，“播放音频”交给默认 App 打开。自测 / 快问快答（小标题带这两个词的那节）的答案先藏起来，停顿行“（停 N 秒）”的位置是“看答案”按钮，顶部可勾“显示全部答案”（`PodcastNotes.quizAnswers`）。文件夹默认 `~/Desktop/SharedDocs/讲书`，
   “换文件夹…”存在 UserDefaults `podcastFolderPath`；上次看的那集、每集看到第几段也存在本机 UserDefaults，不写文件。调试：`-debugPage podcast`。
 
 ## 读取 CourseOS 的什么

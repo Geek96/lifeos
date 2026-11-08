@@ -103,13 +103,19 @@ struct PodcastNotesView: View {
     }
 }
 
-/// 一集的讲稿：`PodcastNotes.parse` 切好的段落；顶部有“目录”跳到二级标题，字号可调，记住看到第几段
+/// 一集的讲稿：`PodcastNotes.parse` 切好的段落；顶部有“目录”跳到二级标题，字号可调，记住看到第几段。
+/// 自测 / 快问快答的答案先藏起来（`PodcastNotes.quizAnswers`），停顿行的位置换成“看答案”按钮
 private struct PodcastNotesReader: View {
     static let positionKey = "podcastNotesPosition"
 
     let episode: PodcastEpisode
     @AppStorage("podcastNotesFontSize") private var fontSize = 15.0
+    @AppStorage("podcastNotesShowAnswers") private var showAll = false
     @State private var blocks: [PodcastNotes.Block] = []
+    /// 答案那段 → 这一题第一段答案
+    @State private var answers: [Int: Int] = [:]
+    /// 点开了的题（按第一段答案的 id）
+    @State private var revealed: Set<Int> = []
     @State private var top: Int?
     @State private var loaded = false
 
@@ -126,6 +132,11 @@ private struct PodcastNotesReader: View {
                         Label("目录", systemImage: "list.bullet")
                     }
                     .fixedSize()
+                }
+                if !answers.isEmpty {
+                    Toggle("显示全部答案", isOn: $showAll)
+                        .toggleStyle(.checkbox)
+                        .fixedSize()
                 }
                 ControlGroup {
                     Button("小一点", systemImage: "textformat.size.smaller") { fontSize = max(12, fontSize - 1) }
@@ -165,6 +176,31 @@ private struct PodcastNotesReader: View {
 
     @ViewBuilder
     private func block(_ b: PodcastNotes.Block) -> some View {
+        if PodcastNotes.isPause(b), answers[b.id + 1] == b.id + 1 {
+            if !showAll { answerButton(b.id + 1) }
+        } else if let g = answers[b.id], !showAll && !revealed.contains(g) {
+            EmptyView()
+        } else if PodcastNotes.isPause(b) {
+            Text(b.text).font(.system(size: fontSize - 2)).foregroundStyle(.tertiary)
+        } else {
+            text(b)
+        }
+    }
+
+    private func answerButton(_ g: Int) -> some View {
+        let open = revealed.contains(g)
+        return Button {
+            if open { revealed.remove(g) } else { revealed.insert(g) }
+        } label: {
+            Label(open ? "收起答案" : "看答案", systemImage: open ? "eye.slash" : "eye")
+                .font(.system(size: fontSize - 1))
+        }
+        .buttonStyle(.bordered)
+        .tint(Theme.teal)
+    }
+
+    @ViewBuilder
+    private func text(_ b: PodcastNotes.Block) -> some View {
         switch b.level {
         case 0:
             Text(Self.inline(b.text))
@@ -189,6 +225,7 @@ private struct PodcastNotesReader: View {
         guard !loaded else { return }
         if let url = episode.notesURL, let raw = try? String(contentsOf: url, encoding: .utf8) {
             blocks = PodcastNotes.parse(raw)
+            answers = PodcastNotes.quizAnswers(in: blocks)
         }
         let saved = (UserDefaults.standard.dictionary(forKey: Self.positionKey) as? [String: Int])?[episode.id]
         loaded = true

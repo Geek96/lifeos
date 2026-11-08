@@ -1417,6 +1417,37 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
         #expect(PodcastNotes.chapter(for: b[2], in: ch)?.start == 61)
         #expect(PodcastNotes.chapter(for: b[0], in: ch) == nil)
     }
+
+    @Test func quizAnswersHidden() {
+        let raw = """
+        ## 正文
+
+        （停 4 秒）
+
+        **甲：** 正文里的停顿后面不算答案。
+
+        ## 快问快答自测
+
+        **乙：** 第一题？
+
+        （停 4 秒）
+
+        **甲：** 答案一。
+
+        接着补充一段。
+
+        **乙：** 第二题？
+
+        （停 4 秒）
+
+        **甲：** 答案二。
+        """
+        let b = PodcastNotes.parse(raw)
+        #expect(PodcastNotes.isPause(b[1]))
+        #expect(!PodcastNotes.isPause(b[2]))
+        // 第一题两段答案（6、7）同组，第二题答案（10）一组；正文里的不算
+        #expect(PodcastNotes.quizAnswers(in: b) == [6: 6, 7: 6, 10: 10])
+    }
 }
 
 @Suite struct PhoneRecordTests {

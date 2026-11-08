@@ -120,6 +120,34 @@ public enum PodcastNotes {
         return out
     }
 
+    /// 讲稿里给听众想答案的停顿行，比如“（停 4 秒）”（`synth.py` 不念，只留空白）
+    public static func isPause(_ block: Block) -> Bool {
+        block.level == 0 && block.text.hasPrefix("（停") && block.text.hasSuffix("秒）")
+    }
+
+    /// 自测的答案：小标题带“自测”或“快问快答”的那一节里，停顿行后面、到下一个“**乙：**”提问之前的段落。
+    /// 返回 答案那段的 id → 这一题第一段答案的 id（同一题的几段一起显示 / 隐藏）
+    public static func quizAnswers(in blocks: [Block]) -> [Int: Int] {
+        var out: [Int: Int] = [:]
+        var inQuiz = false
+        var group: Int?
+        for b in blocks {
+            if b.level > 0 {
+                inQuiz = b.text.contains("自测") || b.text.contains("快问快答")
+                group = nil
+            } else if !inQuiz {
+                continue
+            } else if isPause(b) {
+                group = b.id + 1
+            } else if b.text.hasPrefix("**乙：**") {
+                group = nil
+            } else if let g = group {
+                out[b.id] = g
+            }
+        }
+        return out
+    }
+
     /// 和这个小标题同名的章节（`synth.py` 用 `## ` 后面的文字当章节名）
     public static func chapter(for block: Block, in chapters: [PodcastChapter]) -> PodcastChapter? {
         guard block.level >= 2 else { return nil }
