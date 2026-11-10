@@ -19,6 +19,7 @@ struct PhoneFocusView: View {
                 }
                 FocusToday()
                 FocusWeekChart()
+                FocusLogSection()
             }
             .navigationTitle("专注")
             .toolbar { SettingsButton() }
@@ -35,6 +36,25 @@ struct PhoneFocusView: View {
             }
             #endif
         }
+    }
+}
+
+/// 离开判定的调试记录（`FocusLog`），默认收起；离开记错了的时候展开看是哪一步
+private struct FocusLogSection: View {
+    @State private var lines: [String] = []
+
+    var body: some View {
+        Section {
+            DisclosureGroup("离开判定记录") {
+                if lines.isEmpty {
+                    Text("还没有记录").foregroundStyle(.secondary)
+                }
+                ForEach(Array(lines.reversed().prefix(60).enumerated()), id: \.offset) { _, line in
+                    Text(line).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .onAppear { lines = FocusLog.lines }
     }
 }
 

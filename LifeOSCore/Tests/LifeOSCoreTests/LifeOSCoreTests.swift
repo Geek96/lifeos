@@ -1645,3 +1645,59 @@ private let file = URL(fileURLWithPath: "/tmp/事项/x.md")
         #expect(a.filter { $0.key.hasPrefix("focus:") }.reduce(0) { $0 + $1.points } == 12)
     }
 }
+
+@Suite struct FocusAwayTests {
+    private let t0 = d("2026-11-06 16:20")
+    private func at(_ s: TimeInterval) -> Date { t0.addingTimeInterval(s) }
+
+    /// 在 LifeOS 里直接锁屏放桌上：锁屏通知晚 10 秒来，解锁回来，不算离开
+    @Test func lockOnDeskIsNotLeaving() {
+        var a = FocusAway()
+        a.leave(at: at(0))
+        for s in stride(from: 1.0, through: 9, by: 1) { a.check(at: at(s), locked: false) }
+        for s in stride(from: 10.0, through: 900, by: 1) { a.check(at: at(s), locked: true) }
+        a.unlock(at: at(900))
+        #expect(a.back(at: at(901)) == .ignored)
+    }
+
+    /// 切到别的 App 用了 2 分钟，再锁屏：只算锁屏前那 2 分钟
+    @Test func otherAppThenLockCountsOnlyTheAppTime() {
+        var a = FocusAway()
+        a.leave(at: at(0))
+        for s in stride(from: 1.0, through: 129, by: 1) { a.check(at: at(s), locked: false) }
+        a.lock(at: at(130))  // 真正锁在 120 秒
+        for s in stride(from: 131.0, through: 600, by: 1) { a.check(at: at(s), locked: true) }
+        #expect(a.back(at: at(601)) == .left(seconds: 120))
+    }
+
+    /// 短于 15 秒不算
+    @Test func shortAwayIgnored() {
+        var a = FocusAway()
+        a.leave(at: at(0))
+        for s in stride(from: 1.0, through: 10, by: 1) { a.check(at: at(s), locked: false) }
+        #expect(a.back(at: at(10)) == .ignored)
+    }
+
+    /// App 中间被挂起（检查断了），分不清，不记
+    @Test func suspendedIsNotCounted() {
+        var a = FocusAway()
+        a.leave(at: at(0))
+        a.check(at: at(1), locked: false)
+        a.check(at: at(1200), locked: false)
+        #expect(a.back(at: at(1201)) == .suspended)
+        var b = FocusAway()
+        b.leave(at: at(0))
+        #expect(b.back(at: at(1200)) == .suspended)
+    }
+
+    /// 锁屏通知比进后台还早算（往前推 10 秒）时，不早于进后台那一刻
+    @Test func lockNeverBeforeLeaving() {
+        var a = FocusAway()
+        a.leave(at: at(0))
+        a.check(at: at(1), locked: false)
+        a.check(at: at(2), locked: true)
+        a.check(at: at(3), locked: false)
+        #expect(a.back(at: at(4)) == .ignored)
+        #expect(!a.isAway)
+    }
+}

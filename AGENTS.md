@@ -104,7 +104,8 @@ LifeOS 是“高级日历”：学习之外的生活琐事放在时间上，课�
   后三样的读写在 `LifeOSCore/PhoneRecords.swift`，都经 `SafeFileWrite.update`（NSFileCoordinator 里从磁盘重读 → 改 → 写到 App 临时目录再 rename）：
   - 专注：`FocusStore.append` 往 `健康/专注/当天.md` 追加一行（只有手机写这个文件夹）。界面 `PhoneFocusView.swift`（底栏“专注”），
     状态 `FocusModel.swift`：预设 25/45/60/90 分钟或正计时，做什么从今天的事项和最近用过的里选；切到别的 App 超过 15 秒记一次离开，
-    锁屏不算（`protectedDataWillBecomeUnavailable`）；到点语音 + 本地通知（后备）；结束写一句、可接着休息。电脑版今天卡片显示专注了多久（`AppModel.focus`）。
+    锁屏不算（`LifeOSCore/FocusAway.swift`：锁屏 / 解锁通知 + 活着时每秒看 `isProtectedDataAvailable`，锁着的时间扣掉；后台期间 App 被挂起过就不记这次离开；
+    `AudioCue` 在音频被打断、设备变了、音频服务重置后重新放静音；调试记录 `FocusLog` 存 UserDefaults，专注页最下面“离开判定记录”能看）；到点语音 + 本地通知（后备）；结束写一句、可接着休息。电脑版今天卡片显示专注了多久（`AppModel.focus`）。
   - 训练：今天页“今天练什么”（`PhoneWorkoutView.swift` 的 `PhoneTrainingSection`，按 `训练计划.md` 今天那行 + `动作/` 的目标和 `Exercise.suggestedWeight`）→ 全屏训练页；
     `WorkoutModel.swift`：做完一组 → 组间休息（`Exercise.defaultRest`，±15 秒记在 UserDefaults `workoutRestSeconds`，没做满 +30 秒），
     剩 10 秒和到点用语音说下一组；练完 `HealthStore.writeSession` 新建 `训练记录/YYYY-MM-DD 标题.md`（`source: phone`，不覆盖，重名加 ` 2`）。

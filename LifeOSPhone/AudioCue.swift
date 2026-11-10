@@ -26,6 +26,55 @@ final class AudioCue: NSObject, AVSpeechSynthesizerDelegate {
         engine.attach(silence)
         let format = engine.outputNode.inputFormat(forBus: 0)
         engine.connect(silence, to: engine.mainMixerNode, format: format)
+        observeInterruptions()
+    }
+
+    /// 静音被打断（来电、Siri、耳机插拔、别的 App 改了音频设置）引擎就停了，App 在后台会被挂起；
+    /// 打断结束、设备变了、音频服务重置后，还在计时就重新放
+    private func observeInterruptions() {
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { note in
+            let began = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue
+            MainActor.assumeIsolated {
+                FocusLog.add(began ? "音频被打断" : "音频打断结束")
+                if !began { self.resumeSilence() }
+            }
+        }
+        nc.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                FocusLog.add("音频设备变了")
+                self.resumeSilence()
+            }
+        }
+        nc.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                FocusLog.add("音频服务重置")
+                self.resumeSilence()
+            }
+        }
+    }
+
+    private func resumeSilence() {
+        guard !holders.isEmpty else { return }
+        configure(duck: false)
+        startSilence()
+        FocusLog.add(engine.isRunning ? "静音重新放了" : "静音没放起来")
+    }
+
+    /// 引擎没在跑就启动；放静音的节点没在放就重新排上一秒全 0 的循环
+    private func startSilence() {
+        let format = engine.mainMixerNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(format.sampleRate)) else { return }
+        buffer.frameLength = buffer.frameCapacity  // 全 0：静音
+        do {
+            if !engine.isRunning { try engine.start() }
+            if !silence.isPlaying {
+                silence.scheduleBuffer(buffer, at: nil, options: .loops)
+                silence.play()
+            }
+        } catch {
+            // 起不来就只靠本地通知
+        }
     }
 
     // MARK: - 保持后台运行
@@ -35,16 +84,7 @@ final class AudioCue: NSObject, AVSpeechSynthesizerDelegate {
         holders.insert(who)
         guard !engine.isRunning else { return }
         configure(duck: false)
-        let format = engine.mainMixerNode.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(format.sampleRate)) else { return }
-        buffer.frameLength = buffer.frameCapacity  // 全 0：静音
-        do {
-            try engine.start()
-            silence.scheduleBuffer(buffer, at: nil, options: .loops)
-            silence.play()
-        } catch {
-            // 起不来就只靠本地通知
-        }
+        startSilence()
     }
 
     func release(_ who: String) {

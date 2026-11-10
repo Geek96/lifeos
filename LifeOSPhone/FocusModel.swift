@@ -2,7 +2,7 @@ import SwiftUI
 import LifeOSCore
 
 /// 专注计时（参考 Forest，但不锁 App、不种树、不惩罚）：
-/// 选做什么、多久（或正计时）→ 开始；中途切到别的 App 记一次“离开”和离开多久（锁屏不算离开）；
+/// 选做什么、多久（或正计时）→ 开始；中途切到别的 App 记一次“离开”和离开多久（锁屏不算离开，怎么算见 `FocusAway`）；
 /// 结束时可以写一句做了什么，追加到 `健康/专注/当天.md`；可以接着休息 5 分钟。
 /// 进行中的状态存在 UserDefaults，App 被杀掉回来还能接上。
 @Observable
@@ -29,14 +29,25 @@ final class FocusModel {
     /// 刚结束、等着写备注的那段
     var pending: FocusSession?
 
-    private var awaySince: Date?
+    private var away = FocusAway()
 
     init() {
         restore()
         let nc = NotificationCenter.default
-        // 锁屏：之前切出去的那段算离开，之后锁着的时间不算
+        // 锁屏 / 解锁：锁着的时间不算离开（锁屏通知大约晚 10 秒，FocusAway 会往前推）
         nc.addObserver(forName: UIApplication.protectedDataWillBecomeUnavailableNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { self.locked() }
+            MainActor.assumeIsolated {
+                guard self.isFocusing else { return }
+                FocusLog.add("锁屏")
+                self.away.lock(at: Date())
+            }
+        }
+        nc.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                guard self.isFocusing else { return }
+                FocusLog.add("解锁")
+                self.away.unlock(at: Date())
+            }
         }
     }
 
@@ -49,7 +60,8 @@ final class FocusModel {
         phase = .focusing(start: now, end: end)
         leaves = 0
         leaveSeconds = 0
-        awaySince = nil
+        away = FocusAway()
+        FocusLog.add("开始专注")
         AudioCue.requestNotifications()
         AudioCue.shared.hold("focus")
         if let end {
@@ -62,7 +74,8 @@ final class FocusModel {
     /// 到点或者提前结束：算出这段的记录放进 `pending`，等用户写一句再存
     func finish(now: Date = Date()) {
         guard case .focusing(let start, let end) = phase else { return }
-        settleAway(until: now)
+        settleAway(at: now)
+        FocusLog.add("结束专注，离开 \(leaves) 次")
         let stop = min(now, end ?? now)
         let minutes = max(stop.timeIntervalSince(start) - leaveSeconds, 0) / 60
         pending = FocusSession(start: start, end: stop, minutes: minutes, label: label.trimmingCharacters(in: .whitespaces),
@@ -97,8 +110,11 @@ final class FocusModel {
         save()
     }
 
-    /// 每秒看一次：到点就结束、说一句
+    /// 每秒看一次：到点就结束、说一句；离开期间顺便看锁没锁屏
     func tick(now: Date = Date()) {
+        if isFocusing, away.isAway {
+            away.check(at: now, locked: !UIApplication.shared.isProtectedDataAvailable)
+        }
         switch phase {
         case .focusing(_, let end?) where now >= end:
             AudioCue.shared.say("专注结束。\(label.isEmpty ? "" : label + "，")一共 \(plannedMinutes) 分钟。休息一下吧。")
@@ -114,28 +130,27 @@ final class FocusModel {
     // MARK: - 离开（切到别的 App）
 
     func didLeave(now: Date = Date()) {
-        guard isFocusing, awaySince == nil else { return }
-        awaySince = now
+        guard isFocusing, !away.isAway else { return }
+        FocusLog.add("进后台")
+        away.leave(at: now)
     }
 
     func didReturn(now: Date = Date()) {
-        settleAway(until: now)
+        settleAway(at: now)
         tick(now: now)
     }
 
-    private func locked() {
-        // 锁屏通知大约在锁屏 10 秒后才来
-        settleAway(until: Date().addingTimeInterval(-10))
-    }
-
-    /// 离开超过 15 秒才算一次（拉一下通知中心、接个验证码不算）
-    private func settleAway(until now: Date) {
-        guard let since = awaySince else { return }
-        awaySince = nil
-        let away = now.timeIntervalSince(since)
-        if away > 15 {
+    private func settleAway(at now: Date) {
+        guard away.isAway else { return }
+        switch away.back(at: now) {
+        case .left(let seconds):
             leaves += 1
-            leaveSeconds += away
+            leaveSeconds += seconds
+            FocusLog.add("回来，记离开 \(Int(seconds)) 秒")
+        case .ignored:
+            FocusLog.add("回来，不算离开")
+        case .suspended:
+            FocusLog.add("回来，中间 App 被挂起过，不算离开")
         }
         save()
     }
@@ -176,5 +191,20 @@ final class FocusModel {
             phase = .resting(end: end)
         }
         tick()
+    }
+}
+
+/// 离开判定的调试记录：只存在手机的 UserDefaults 里，最近 200 条，专注页最下面能展开看
+@MainActor
+enum FocusLog {
+    static let key = "focusLog"
+    static let limit = 200
+
+    static var lines: [String] { UserDefaults.standard.stringArray(forKey: key) ?? [] }
+
+    static func add(_ text: String, now: Date = Date()) {
+        var all = lines
+        all.append("\(Fmt.string(now, "M/d HH:mm:ss"))  \(text)")
+        UserDefaults.standard.set(Array(all.suffix(limit)), forKey: key)
     }
 }
